@@ -1,0 +1,13 @@
+FROM docker.m.daocloud.io/library/python:3.10-slim
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir funasr
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torchaudio --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir imageio-ffmpeg
+
+COPY scripts/funasr_transcribe.py /opt/funasr_transcribe.py
+
+ENTRYPOINT ["python", "/opt/funasr_transcribe.py"]

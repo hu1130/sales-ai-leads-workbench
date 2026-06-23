@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>销售 AI 线索雷达</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="rail">
+        <div class="brand">
+          <div class="brand-icon">AI</div>
+          <div>
+            <strong>销售线索</strong>
+            <span>智能分析工作台</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-btn active" data-view="dashboard">
+            <span class="nav-ico">⌂</span>
+            <span>工作台</span>
+          </button>
+          <button class="nav-btn" data-view="customers">
+            <span class="nav-ico">◎</span>
+            <span>客户池</span>
+          </button>
+          <button class="nav-btn" data-view="uploads">
+            <span class="nav-ico">⇧</span>
+            <span>资料分析</span>
+          </button>
+          <button class="nav-btn" data-view="leads">
+            <span class="nav-ico">★</span>
+            <span>意向线索</span>
+          </button>
+          <button class="nav-btn" data-view="users">
+            <span class="nav-ico">◇</span>
+            <span>销售账号</span>
+          </button>
+        </nav>
+
+        <section class="rail-card">
+          <span class="rail-label">当前账号</span>
+          <strong id="accountName">未登录</strong>
+          <span id="userRole" class="account-role">未登录</span>
+          <p id="accountHint">可以先浏览示例，登录后查看真实数据。</p>
+          <button id="railLoginBtn" class="soft-btn" type="button">登录系统</button>
+          <button id="logoutBtn" class="soft-btn danger" type="button" hidden>退出登录</button>
+        </section>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="date-line" id="todayText">今日</p>
+            <h1 id="viewTitle">销售 AI 线索雷达</h1>
+          </div>
+          <div class="top-actions">
+            <button id="refreshBtn" class="quiet-btn" type="button">刷新</button>
+            <button id="testAiBtn" class="quiet-btn" type="button">检测 AI</button>
+            <button id="loginOpenBtn" class="quiet-btn" type="button">登录</button>
+            <button id="openUploadBtn" class="primary-btn" type="button">上传资料</button>
+          </div>
+        </header>
+
+        <section id="modeBanner" class="mode-banner">
+          <div>
+            <strong>当前为示例浏览</strong>
+            <p>先看页面和业务流程。登录后会自动切换成真实客户、真实上传记录和真实 AI 分析。</p>
+          </div>
+          <button class="primary-btn" type="button" data-open-login>登录查看真实数据</button>
+        </section>
+
+        <section id="alertBox" class="notice" hidden></section>
+
+        <section id="dashboardView" class="view active-view">
+          <section class="command-bar">
+            <div>
+              <span class="status-pill" id="connectionPill">未登录</span>
+              <h2>AI 正在筛选今天该跟的客户</h2>
+              <p>微信长截图、通话录音和客户资料会自动进入分析队列。你只需要看清谁最值得先联系，以及下一句话怎么说。</p>
+            </div>
+            <div class="command-actions">
+              <button id="heroUploadBtn" class="primary-btn" type="button">上传客户资料</button>
+              <button class="quiet-btn" type="button" data-view-link="leads">查看线索分层</button>
+            </div>
+          </section>
+
+          <section class="intent-metrics">
+            <article class="intent-card high" data-view-link="leads" data-dashboard-intent="高意向">
+              <span>高意向</span>
+              <strong id="metricHighIntent">--</strong>
+              <p>今天优先拨号</p>
+            </article>
+            <article class="intent-card mid" data-view-link="leads" data-dashboard-intent="中意向">
+              <span>中意向</span>
+              <strong id="metricMidIntent">--</strong>
+              <p>发方案和案例</p>
+            </article>
+            <article class="intent-card low" data-view-link="leads" data-dashboard-intent="低意向">
+              <span>低意向</span>
+              <strong id="metricLowIntent">--</strong>
+              <p>保留线索</p>
+            </article>
+            <article class="intent-card none" data-view-link="leads" data-dashboard-intent="暂无意向">
+              <span>暂无意向</span>
+              <strong id="metricNoIntent">--</strong>
+              <p>暂缓跟进</p>
+            </article>
+            <article class="intent-card unknown" data-view-link="leads" data-dashboard-intent="无法判断">
+              <span>无法判断</span>
+              <strong id="metricUnknownIntent">--</strong>
+              <p>补资料再分析</p>
+            </article>
+          </section>
+
+          <section class="dashboard-grid">
+            <article class="panel focus-panel">
+              <div class="panel-head">
+                <div>
+                  <span class="panel-kicker">Action queue</span>
+                  <h3>今天先跟这些客户</h3>
+                </div>
+                <button class="text-btn" data-view-link="leads">全部</button>
+              </div>
+              <div id="dashboardLeads" class="lead-stack"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <span class="panel-kicker">AI pipeline</span>
+                  <h3>资料分析进度</h3>
+                </div>
+                <button class="text-btn" data-view-link="uploads">全部</button>
+              </div>
+              <div id="dashboardUploads" class="timeline"></div>
+            </article>
+          </section>
+        </section>
+
+        <section id="customersView" class="view">
+          <div class="toolbar">
+            <input id="customerKeyword" placeholder="搜索客户姓名或电话" />
+            <select id="customerIntent">
+              <option value="">全部意向</option>
+              <option>高意向</option>
+              <option>中意向</option>
+              <option>低意向</option>
+              <option>暂无意向</option>
+              <option>无法判断</option>
+            </select>
+            <button id="searchCustomersBtn" class="quiet-btn">查询</button>
+          </div>
+          <section class="panel table-panel">
+            <table>
+              <thead>
+                <tr>
+                  <th>客户</th>
+                  <th>电话</th>
+                  <th>意向</th>
+                  <th>客户需求</th>
+                  <th>下一步</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="customersTable"></tbody>
+            </table>
+          </section>
+        </section>
+
+        <section id="uploadsView" class="view">
+          <div class="toolbar">
+            <select id="uploadStatus">
+              <option value="">全部状态</option>
+              <option value="pending">待处理</option>
+              <option value="processing">处理中</option>
+              <option value="completed">已完成</option>
+              <option value="failed">失败</option>
+            </select>
+            <select id="uploadType">
+              <option value="">全部类型</option>
+              <option value="image">图片</option>
+              <option value="audio">录音</option>
+              <option value="document">文档</option>
+              <option value="unknown">其他</option>
+            </select>
+            <button id="searchUploadsBtn" class="quiet-btn">查询</button>
+          </div>
+          <section class="panel table-panel">
+            <table>
+              <thead>
+                <tr>
+                  <th>资料</th>
+                  <th>类型</th>
+                  <th>状态</th>
+                  <th>客户</th>
+                  <th>时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="uploadsTable"></tbody>
+            </table>
+          </section>
+        </section>
+
+        <section id="leadsView" class="view">
+          <div class="toolbar lead-toolbar">
+            <div class="segmented" id="leadIntentTabs" role="tablist" aria-label="意向分层">
+              <button class="segment active" type="button" data-intent="高意向">高意向</button>
+              <button class="segment" type="button" data-intent="中意向">中意向</button>
+              <button class="segment" type="button" data-intent="低意向">低意向</button>
+              <button class="segment" type="button" data-intent="暂无意向">暂无意向</button>
+              <button class="segment" type="button" data-intent="无法判断">无法判断</button>
+            </div>
+          </div>
+          <section class="panel table-panel">
+            <table>
+              <thead>
+                <tr>
+                  <th>客户</th>
+                  <th>电话</th>
+                  <th>评分</th>
+                  <th>需求</th>
+                  <th>建议</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="leadsTable"></tbody>
+            </table>
+          </section>
+        </section>
+
+        <section id="usersView" class="view">
+          <div class="account-layout">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <span class="panel-kicker">团队</span>
+                  <h3>销售账号</h3>
+                </div>
+                <input id="userKeyword" class="small-input" placeholder="搜索销售" />
+              </div>
+              <div id="usersList" class="user-list"></div>
+            </section>
+            <section class="panel account-form">
+              <div class="panel-head">
+                <div>
+                  <span class="panel-kicker">新增</span>
+                  <h3>创建销售</h3>
+                </div>
+              </div>
+              <form id="createUserForm" class="form-grid">
+                <label><span>账号</span><input name="username" required /></label>
+                <label><span>姓名</span><input name="name" required /></label>
+                <label><span>手机号</span><input name="phone" /></label>
+                <label><span>初始密码</span><input name="password" type="password" required /></label>
+                <button class="primary-btn full" type="submit">创建账号</button>
+              </form>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="loginDialog" class="modal small">
+      <form id="loginForm" method="dialog" class="modal-body">
+        <div class="modal-head">
+          <div>
+            <h3>登录系统</h3>
+            <p>默认账号 admin，密码 admin123。</p>
+          </div>
+          <button class="icon-btn" type="button" data-close="loginDialog" aria-label="关闭">×</button>
+        </div>
+        <div class="form-stack compact">
+          <label><span>账号</span><input id="loginUsername" autocomplete="username" value="admin" required /></label>
+          <label><span>密码</span><input id="loginPassword" type="password" value="admin123" required /></label>
+          <label><span>后端地址</span><input id="apiBase" value="http://127.0.0.1:8000" required /></label>
+          <button class="primary-btn" type="submit">进入真实数据</button>
+        </div>
+        <p id="loginError" class="inline-error" hidden></p>
+      </form>
+    </dialog>
+
+    <dialog id="uploadDialog" class="modal">
+      <form id="uploadForm" method="dialog" class="modal-body">
+        <div class="modal-head">
+          <div>
+            <h3>上传客户资料</h3>
+            <p>支持图片、录音、合同和单据。</p>
+          </div>
+          <button class="icon-btn" type="button" data-close="uploadDialog" aria-label="关闭">×</button>
+        </div>
+        <div class="form-grid">
+          <label class="full"><span>选择文件</span><input name="file" type="file" accept="image/*,audio/*,.pdf,.doc,.docx,.txt,.md,.csv" required /></label>
+          <label><span>客户电话</span><input name="customer_phone" placeholder="可不填" /></label>
+          <label><span>客户姓名</span><input name="customer_name" placeholder="可不填" /></label>
+          <label class="full"><span>备注</span><textarea name="note" rows="3" placeholder="例如：电话系统同步录音，或客户发来的合同截图"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button class="quiet-btn" type="button" data-close="uploadDialog">取消</button>
+          <button class="primary-btn" type="submit">开始分析</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="detailDialog" class="modal detail-modal">
+      <section class="modal-body">
+        <div class="modal-head">
+          <h3 id="detailTitle">详情</h3>
+          <button class="icon-btn" type="button" data-close="detailDialog" aria-label="关闭">×</button>
+        </div>
+        <div id="detailContent" class="detail-content"></div>
+      </section>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

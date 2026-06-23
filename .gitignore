@@ -1,0 +1,50 @@
+# Local environments
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!deploy/.env.prod.example
+*.key
+*.pem
+
+# Local databases and generated runtime state
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+
+# Backend runtime files
+work/sales_ai_backend/uploads/
+work/sales_ai_backend/.test_tmp/
+work/sales_ai_backend/backend.*.log
+work/sales_ai_backend/server-*.log
+
+# Phone sync / recording runtime files
+work/*.png
+work/Automatic-Phone-Recording-main/data/inbox/
+work/Automatic-Phone-Recording-main/data/recordings/
+work/Automatic-Phone-Recording-main/data/transcripts/
+work/Automatic-Phone-Recording-main/data/wav/
+work/Automatic-Phone-Recording-main/data/exports/
+work/Automatic-Phone-Recording-main/db/
+work/Automatic-Phone-Recording-main/logs/
+work/Automatic-Phone-Recording-main/.test_tmp/
+work/Automatic-Phone-Recording-main/.test_material_tmp/
+
+# Frontend local server logs
+outputs/sales_ai_frontend/server.*.log
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

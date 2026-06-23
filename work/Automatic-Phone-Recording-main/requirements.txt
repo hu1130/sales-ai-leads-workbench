@@ -1,0 +1,3 @@
+# Optional speech-to-text dependency.
+# Install this only after confirming your Python, PyTorch, and hardware setup.
+# funasr
