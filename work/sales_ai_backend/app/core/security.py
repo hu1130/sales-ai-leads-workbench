@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,15 +17,22 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def now_local() -> datetime:
+    """Return current local datetime (matches SQLite's func.now())."""
+    return datetime.now()
+
+
 def create_access_token(subject: str) -> str:
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    expires_at = now_local() + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": subject, "exp": expires_at}
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    secret = settings.jwt_secret_key or "sales-ai-default-dev-key-change-in-production"
+    return jwt.encode(payload, secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> str | None:
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        secret = settings.jwt_secret_key or "sales-ai-default-dev-key-change-in-production"
+        payload = jwt.decode(token, secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
     subject = payload.get("sub")

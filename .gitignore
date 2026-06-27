@@ -11,6 +11,7 @@ __pycache__/
 .env.*
 !.env.example
 !deploy/.env.prod.example
+.local_secrets/
 *.key
 *.pem
 
@@ -42,9 +43,23 @@ work/Automatic-Phone-Recording-main/.test_material_tmp/
 # Frontend local server logs
 outputs/sales_ai_frontend/server.*.log
 
+# JavaScript frontend dependencies and builds
+node_modules/
+dist/
+outputs/sales_ai_frontend_vue/node_modules/
+outputs/sales_ai_frontend_vue/dist/
+
+# Local agent/tooling artifacts and generated packages
+.claude/
+CLAUDE.md
+.tmp_test/
+*.zip
+fake_wechat_ocr_deepseek_test.png
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
 desktop.ini
+~$*.docx
 .idea/
 .vscode/

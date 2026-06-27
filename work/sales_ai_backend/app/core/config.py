@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Sales AI Backend"
     database_url: str = "sqlite:///./sales_ai.db"
-    jwt_secret_key: str = "change-this-secret-before-production"
+    jwt_secret_key: str = "sales-ai-default-dev-key-change-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
     upload_dir: str = "uploads"

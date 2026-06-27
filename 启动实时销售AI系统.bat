@@ -1,6 +1,6 @@
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0??????AI??.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_sales_ai_realtime.ps1"
 if errorlevel 1 (
   echo.
   echo Failed to start Sales AI realtime services.

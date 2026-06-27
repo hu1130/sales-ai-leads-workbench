@@ -16,6 +16,8 @@ class Followup(Base):
     source: Mapped[str] = mapped_column(String(20), default="manual", index=True)
     call_recording_id: Mapped[int | None] = mapped_column(ForeignKey("call_recordings.id"), nullable=True, index=True)
     upload_record_id: Mapped[int | None] = mapped_column(ForeignKey("upload_records.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_followup_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

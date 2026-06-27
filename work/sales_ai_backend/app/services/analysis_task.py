@@ -64,6 +64,8 @@ def _save_analysis(db: Session, upload: UploadRecord, payload) -> None:
             customer_id=upload.customer_id,
             phone=payload.customer_phone,
             name=payload.customer_name,
+            wechat_id=payload.customer_wechat_id,
+            wechat_nickname=payload.customer_wechat_nickname,
         )
         upload.customer_id = customer.id
         analysis = build_analysis_result(upload, payload)

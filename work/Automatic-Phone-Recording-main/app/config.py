@@ -9,6 +9,24 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 LOCAL_ADB = BASE_DIR / "tools" / "platform-tools" / "adb.exe"
 
 
+def _load_dotenv() -> None:
+    env_file = BASE_DIR / ".env"
+    if not env_file.exists():
+        return
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
+
+
 def _csv_env(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name)
     if not raw:
@@ -50,7 +68,7 @@ class Settings:
 
     ollama_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-    sales_ai_base_url: str = os.getenv("SALES_AI_BASE_URL", "http://127.0.0.1:8000")
+    sales_ai_base_url: str = os.getenv("SALES_AI_BASE_URL", "http://127.0.0.1:8100")
     sales_ai_username: str = os.getenv("SALES_AI_USERNAME", "admin")
     sales_ai_password: str = os.getenv("SALES_AI_PASSWORD", "admin123")
     sales_ai_sales_username: str | None = os.getenv("SALES_AI_SALES_USERNAME") or None

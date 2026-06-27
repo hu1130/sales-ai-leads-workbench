@@ -20,6 +20,7 @@ def configure_env() -> Path:
     os.environ["SALES_AI_BASE_URL"] = "http://sales-ai.test"
     os.environ["SALES_AI_USERNAME"] = "admin"
     os.environ["SALES_AI_PASSWORD"] = "admin123"
+    os.environ["SALES_AI_SALES_USERNAME"] = "sales01"
     audio = TMP / "13800000000_20260617093000.mp3"
     audio.write_bytes(b"fake mp3 bytes")
     return audio
@@ -58,6 +59,7 @@ class FakeUrlopen:
             body = req.data or b""
             assert b'13800000000' in body
             assert b'2026-06-17T09:30:00' in body
+            assert b"sales01" in body
             assert audio_path.name.encode("utf-8") in body
             assert req.headers["Authorization"] == "Bearer fake-token"
             return FakeUrlopenResponse(b'{"recording_id":9,"upload_record_id":18,"status":"pending"}')
@@ -69,6 +71,7 @@ class FakeUrlopen:
         if req.full_url.endswith("/api/uploads"):
             body = req.data or b""
             assert b"wechat-long.png" in body
+            assert b"sales01" in body
             assert b"Content-Type: image/png" in body
             assert req.headers["Authorization"] == "Bearer fake-token"
             return FakeUrlopenResponse(b'{"id":21,"status":"pending","message":"uploaded"}')

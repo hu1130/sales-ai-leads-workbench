@@ -11,6 +11,8 @@ def find_or_create_customer(
     customer_id: int | None = None,
     phone: str | None = None,
     name: str | None = None,
+    wechat_id: str | None = None,
+    wechat_nickname: str | None = None,
 ) -> Customer:
     if customer_id:
         customer = db.get(Customer, customer_id)
@@ -19,13 +21,31 @@ def find_or_create_customer(
 
     normalized_phone = _clean_unknown(phone)
     normalized_name = _clean_unknown(name)
+    normalized_wechat_id = _clean_unknown(wechat_id)
+    normalized_wechat_nickname = _clean_unknown(wechat_nickname)
 
     customer = None
-    if normalized_phone:
+    if normalized_wechat_id:
+        customer = (
+            db.query(Customer)
+            .filter(Customer.wechat_id == normalized_wechat_id)
+            .filter(or_(Customer.owner_id == owner_id, Customer.owner_id.is_(None)))
+            .first()
+        )
+
+    if customer is None and normalized_phone:
         customer = (
             db.query(Customer)
             .filter(Customer.phone == normalized_phone)
             .filter(or_(Customer.owner_id == owner_id, Customer.owner_id.is_(None)))
+            .first()
+        )
+
+    if customer is None and normalized_wechat_nickname:
+        customer = (
+            db.query(Customer)
+            .filter(or_(Customer.owner_id == owner_id, Customer.owner_id.is_(None)))
+            .filter(Customer.wechat_nickname == normalized_wechat_nickname)
             .first()
         )
 
@@ -38,7 +58,16 @@ def find_or_create_customer(
         )
 
     if customer is None:
-        customer = Customer(owner_id=owner_id, phone=normalized_phone, name=normalized_name, source="AI上传")
+        customer = Customer(
+            owner_id=owner_id,
+            phone=normalized_phone,
+            name=normalized_name,
+            wechat_id=normalized_wechat_id,
+            wechat_nickname=normalized_wechat_nickname,
+            source="AI上传",
+            lead_source="AI上传",
+            lead_status="assigned" if owner_id else "unassigned",
+        )
         db.add(customer)
         db.flush()
     return customer
@@ -50,6 +79,10 @@ def update_customer_from_analysis(customer: Customer, analysis: AIAnalysisResult
 
     if _clean_unknown(analysis.customer_name) and _is_missing_or_corrupt_name(customer.name):
         customer.name = analysis.customer_name
+    if _clean_unknown(analysis.customer_wechat_id) and not customer.wechat_id:
+        customer.wechat_id = analysis.customer_wechat_id
+    if _clean_unknown(analysis.customer_wechat_nickname) and not customer.wechat_nickname:
+        customer.wechat_nickname = analysis.customer_wechat_nickname
     if _clean_unknown(analysis.customer_phone) and not customer.phone:
         customer.phone = analysis.customer_phone
     if _clean_unknown(analysis.customer_address) and not customer.address:
@@ -108,4 +141,4 @@ def _is_missing_or_corrupt_name(value: str | None) -> bool:
     cleaned = _clean_unknown(value)
     if not cleaned:
         return True
-    return all(character in {"?", "？", "�"} for character in cleaned)
+    return all(character in {"?", "\uff1f", "\ufffd"} for character in cleaned)

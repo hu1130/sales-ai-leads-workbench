@@ -367,7 +367,7 @@ MVP 阶段可以用。后续多人正式使用时建议迁移：
 默认访问：
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8100
 ```
 
 登录：
@@ -391,7 +391,7 @@ work/Automatic-Phone-Recording-main/data/inbox
 ```powershell
 cd work/Automatic-Phone-Recording-main
 $env:ENABLE_SALES_AI_UPLOAD="1"
-$env:SALES_AI_BASE_URL="http://127.0.0.1:8000"
+$env:SALES_AI_BASE_URL="http://127.0.0.1:8100"
 $env:SALES_AI_USERNAME="admin"
 $env:SALES_AI_PASSWORD="admin123"
 $env:ENABLE_WAV_CONVERT="0"

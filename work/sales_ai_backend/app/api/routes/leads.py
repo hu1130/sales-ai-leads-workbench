@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -22,7 +22,7 @@ def intent_leads(
     if intent_level not in {"高意向", "中意向", "低意向", "暂无意向", "无法判断"}:
         raise HTTPException(status_code=400, detail="意向等级不正确")
 
-    query = db.query(Customer).filter(Customer.intent_level == intent_level)
+    query = db.query(Customer).options(joinedload(Customer.owner)).filter(Customer.intent_level == intent_level)
     if current_user.role != "admin":
         query = query.filter(Customer.owner_id == current_user.id)
     total = query.count()
@@ -43,7 +43,11 @@ def high_intent_leads(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CustomerListResponse:
-    query = db.query(Customer).filter((Customer.intent_level == "高意向") | (Customer.intent_score >= min_score))
+    query = (
+        db.query(Customer)
+        .options(joinedload(Customer.owner))
+        .filter((Customer.intent_level == "高意向") | (Customer.intent_score >= min_score))
+    )
     if current_user.role != "admin":
         query = query.filter(Customer.owner_id == current_user.id)
     total = query.count()

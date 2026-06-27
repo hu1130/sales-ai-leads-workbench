@@ -15,6 +15,11 @@ class UploadOut(BaseModel):
     id: int
     customer_id: int | None
     uploader_id: int | None
+    uploader_name: str | None = None
+    uploader_username: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    material_stage: str
     file_type: str
     file_name: str
     status: str

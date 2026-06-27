@@ -22,6 +22,8 @@ def configure_test_environment() -> None:
     os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
     os.environ["UPLOAD_DIR"] = str(TEST_UPLOADS)
     os.environ["JWT_SECRET_KEY"] = "test-secret-key"
+    os.environ["DEFAULT_ADMIN_USERNAME"] = "admin"
+    os.environ["DEFAULT_ADMIN_PASSWORD"] = "admin123"
     os.environ["DEEPSEEK_API_KEY"] = ""
     os.environ["DASHSCOPE_API_KEY"] = ""
     os.environ["ASR_PROVIDER"] = ""

@@ -5,16 +5,25 @@ from pydantic import BaseModel
 
 class CustomerBase(BaseModel):
     name: str | None = None
+    wechat_id: str | None = None
+    wechat_nickname: str | None = None
     phone: str | None = None
     address: str | None = None
     source: str | None = None
+    lead_source: str | None = None
 
 
 class CustomerCreate(CustomerBase):
     owner_id: int | None = None
+    lead_status: str | None = None
+    demand_summary: str | None = None
+    next_action: str | None = None
 
 
 class CustomerUpdate(CustomerBase):
+    owner_id: int | None = None
+    lead_status: str | None = None
+    pipeline_stage: str | None = None
     intent_level: str | None = None
     intent_score: int | None = None
     demand_summary: str | None = None
@@ -28,6 +37,10 @@ class CustomerUpdate(CustomerBase):
 class CustomerOut(CustomerBase):
     id: int
     owner_id: int | None
+    owner_name: str | None = None
+    owner_username: str | None = None
+    lead_status: str
+    pipeline_stage: str = "lead"
     intent_level: str
     intent_score: int
     demand_summary: str | None
@@ -48,4 +61,3 @@ class CustomerListResponse(BaseModel):
     total: int
     page: int
     page_size: int
-

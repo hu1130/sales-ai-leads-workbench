@@ -10,6 +10,8 @@ class AIAnalysisOut(BaseModel):
     raw_text: str | None
     summary: str | None
     customer_name: str | None
+    customer_wechat_id: str | None = None
+    customer_wechat_nickname: str | None = None
     customer_phone: str | None
     customer_address: str | None
     customer_needs: str | None
@@ -28,4 +30,3 @@ class AIAnalysisOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-

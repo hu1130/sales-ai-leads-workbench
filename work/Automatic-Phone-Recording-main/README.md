@@ -129,7 +129,7 @@ $env:SALESPERSON_ID="sales_001"
 | `ENABLE_SALES_AI_UPLOAD` | `0` | Set to `1` to upload imported recordings to the Sales AI backend. |
 | `ENABLE_WAV_CONVERT` | `1` | Set to `0` to skip FFmpeg conversion and only import/upload original recordings. |
 | `PIPELINE_POLL_SECONDS` | `15` | Realtime watcher interval; minimum 5 seconds. |
-| `SALES_AI_BASE_URL` | `http://127.0.0.1:8000` | Sales AI backend base URL. |
+| `SALES_AI_BASE_URL` | `http://127.0.0.1:8100` | Sales AI backend base URL. |
 | `SALES_AI_USERNAME` | `admin` | Sales AI login username. |
 | `SALES_AI_PASSWORD` | `admin123` | Sales AI login password. |
 | `SALES_AI_SALES_USERNAME` | empty | When an admin uploads on behalf of a salesperson, bind the recording to this sales username. |
@@ -168,7 +168,7 @@ After the Sales AI backend is running, enable automatic upload:
 
 ```powershell
 $env:ENABLE_SALES_AI_UPLOAD="1"
-$env:SALES_AI_BASE_URL="http://127.0.0.1:8000"
+$env:SALES_AI_BASE_URL="http://127.0.0.1:8100"
 $env:SALES_AI_USERNAME="admin"
 $env:SALES_AI_PASSWORD="admin123"
 $env:SALES_AI_SALES_USERNAME="sales01"

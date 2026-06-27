@@ -15,6 +15,8 @@ class AIAnalysisResult(Base):
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     customer_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    customer_wechat_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    customer_wechat_nickname: Mapped[str | None] = mapped_column(String(120), nullable=True)
     customer_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     customer_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer_needs: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -34,4 +36,3 @@ class AIAnalysisResult(Base):
 
     upload_record = relationship("UploadRecord", back_populates="analysis")
     customer = relationship("Customer", back_populates="analyses")
-

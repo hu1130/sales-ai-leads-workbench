@@ -24,3 +24,28 @@ class UploadRecord(Base):
     uploader = relationship("User", back_populates="uploads")
     analysis = relationship("AIAnalysisResult", back_populates="upload_record", uselist=False)
 
+    @property
+    def uploader_name(self) -> str | None:
+        return self.uploader.name if self.uploader else None
+
+    @property
+    def uploader_username(self) -> str | None:
+        return self.uploader.username if self.uploader else None
+
+    @property
+    def customer_name(self) -> str | None:
+        return self.customer.name if self.customer else None
+
+    @property
+    def customer_phone(self) -> str | None:
+        return self.customer.phone if self.customer else None
+
+    @property
+    def material_stage(self) -> str:
+        if self.status == "failed":
+            return "failed"
+        if self.status in {"pending", "processing"}:
+            return "processing"
+        if self.customer_id:
+            return "customer_created"
+        return "unlinked"

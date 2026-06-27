@@ -61,10 +61,13 @@ def upload_material_to_sales_ai(material: MaterialUpload) -> dict[str, Any]:
         raise RuntimeError(f"Material file does not exist: {image_path}")
 
     token = _login()
+    data: dict[str, str] = {}
+    if settings.sales_ai_sales_username:
+        data["sales_username"] = settings.sales_ai_sales_username
     return _post_multipart(
         f"{settings.sales_ai_base_url.rstrip('/')}/api/uploads",
         token=token,
-        data={},
+        data=data,
         file_field="file",
         file_path=image_path,
         timeout=120,

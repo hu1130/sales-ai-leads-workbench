@@ -1,0 +1,18 @@
+[Unit]
+Description=Sales AI Cloud Recording Watcher
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sales-ai/backend
+ExecStart=/usr/bin/python3 /opt/sales-ai/backend/cloud_recording_watcher.py \
+    --watch-dir /data/inbox \
+    --api-url http://127.0.0.1:8100 \
+    --username admin \
+    --password admin123 \
+    --interval 30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

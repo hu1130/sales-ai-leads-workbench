@@ -27,6 +27,8 @@ class AnalysisPayload:
     raw_text: str
     summary: str
     customer_name: str
+    customer_wechat_id: str
+    customer_wechat_nickname: str
     customer_phone: str
     customer_address: str
     customer_needs: str
@@ -312,6 +314,8 @@ class AIService:
                 raw_text=raw_text,
                 summary="资料已接收，但当前没有可用于判断的真实文本内容。",
                 customer_name=UNKNOWN,
+                customer_wechat_id=UNKNOWN,
+                customer_wechat_nickname=UNKNOWN,
                 customer_phone=UNKNOWN,
                 customer_address=UNKNOWN,
                 customer_needs=UNKNOWN,
@@ -331,6 +335,8 @@ class AIService:
 
         phone = self._extract_phone(raw_text)
         name = self._extract_name(raw_text)
+        wechat_id = self._extract_wechat_id(raw_text)
+        wechat_nickname = self._extract_wechat_nickname(raw_text)
         budget = self._extract_budget(raw_text)
         purchase_time = self._extract_purchase_time(raw_text)
         product = self._extract_product(raw_text)
@@ -347,6 +353,8 @@ class AIService:
             raw_text=raw_text,
             summary=self._summary(intent_level, needs, budget, purchase_time),
             customer_name=name or UNKNOWN,
+            customer_wechat_id=wechat_id or UNKNOWN,
+            customer_wechat_nickname=wechat_nickname or UNKNOWN,
             customer_phone=phone or UNKNOWN,
             customer_address=UNKNOWN,
             customer_needs=needs,
@@ -379,6 +387,35 @@ class AIService:
             if match:
                 return match.group(1).strip()
         return None
+
+    def _extract_wechat_id(self, text: str) -> str | None:
+        patterns = [
+            r"(?:微信号|微信ID|wxid|WeChat ID)[：:\s]*([A-Za-z][A-Za-z0-9_-]{5,31})",
+            r"\b(wxid_[A-Za-z0-9_-]{5,})\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if match:
+                return match.group(1).strip()
+        return None
+
+    def _extract_wechat_nickname(self, text: str) -> str | None:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for pattern in (r"(?:微信昵称|昵称|备注名|备注)[：:\s]*([^\n]{1,40})", r"^(.{1,40})$"):
+            for line in lines[:8]:
+                match = re.search(pattern, line)
+                if not match:
+                    continue
+                nickname = match.group(1).strip()
+                if self._looks_like_wechat_nickname(nickname):
+                    return nickname
+        return None
+
+    def _looks_like_wechat_nickname(self, value: str) -> bool:
+        if not value or value in {UNKNOWN, UNSURE}:
+            return False
+        blocked = ("http", ".jpg", ".png", ".apk", ".txt", "MB", "KB", "上午", "下午", "微信号", "聊天信息")
+        return not any(marker.lower() in value.lower() for marker in blocked)
 
     def _extract_budget(self, text: str) -> str | None:
         match = re.search(r"预算[^。\n，,：:]*[：:\s]*([^。\n]+)", text)
@@ -534,6 +571,8 @@ class AIService:
             raw_text=raw_text,
             summary=data.get("summary", UNKNOWN),
             customer_name=data.get("customer_name", UNKNOWN),
+            customer_wechat_id=data.get("customer_wechat_id", UNKNOWN),
+            customer_wechat_nickname=data.get("customer_wechat_nickname", UNKNOWN),
             customer_phone=data.get("customer_phone", UNKNOWN),
             customer_address=data.get("customer_address", UNKNOWN),
             customer_needs=data.get("customer_needs", UNKNOWN),
@@ -563,9 +602,10 @@ class AIService:
 5. intent_level 只能是：高意向、中意向、低意向、暂无意向、无法判断。
 6. intent_score 必须是 0-100 的整数。
 7. evidence 必须写出判断依据；没有依据写“未提及”。
+8. 如果资料来自微信聊天截图，优先提取截图顶部聊天对象、备注名、昵称和明确出现的微信号；看不到微信号就写“未提及”。
 
 输出字段：
-summary, customer_name, customer_phone, customer_address, customer_needs,
+summary, customer_name, customer_wechat_id, customer_wechat_nickname, customer_phone, customer_address, customer_needs,
 customer_questions, customer_objections, product_interest, budget, purchase_time,
 intent_level, intent_score, intent_reason, evidence, next_action, sales_script
 
@@ -573,6 +613,8 @@ JSON 示例：
 {{
   "summary": "客户询问报价、合同和部署时间，购买意向较强。",
   "customer_name": "王先生",
+  "customer_wechat_id": "wxid_abc123456",
+  "customer_wechat_nickname": "王总",
   "customer_phone": "13800000000",
   "customer_address": "未提及",
   "customer_needs": "希望购买 AI 销售线索分析系统",
@@ -629,6 +671,8 @@ def build_analysis_result(upload: UploadRecord, payload: AnalysisPayload) -> AIA
         raw_text=payload.raw_text,
         summary=payload.summary,
         customer_name=payload.customer_name,
+        customer_wechat_id=payload.customer_wechat_id,
+        customer_wechat_nickname=payload.customer_wechat_nickname,
         customer_phone=payload.customer_phone,
         customer_address=payload.customer_address,
         customer_needs=payload.customer_needs,

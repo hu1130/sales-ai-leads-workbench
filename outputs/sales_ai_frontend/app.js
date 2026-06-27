@@ -1,97 +1,23 @@
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
 const state = {
   apiBase: initialApiBase(),
   token: localStorage.getItem("salesAiToken") || "",
   user: JSON.parse(localStorage.getItem("salesAiUser") || "null"),
   view: "dashboard",
-  leadIntent: "高意向",
-  previewObjectUrls: [],
+  salesUsers: [],
+  previewUrls: [],
 };
 
-function initialApiBase() {
-  const saved = localStorage.getItem("salesAiApiBase");
-  if (!saved) return defaultApiBase();
-  try {
-    const url = new URL(saved);
-    const isLocalStaticServer = ["127.0.0.1", "localhost"].includes(url.hostname) && url.port === "8080";
-    return isLocalStaticServer ? `${url.protocol}//${url.hostname}:8000` : saved;
-  } catch {
-    return defaultApiBase();
-  }
-}
-
-function defaultApiBase() {
-  if (window.SALES_AI_API_BASE) return window.SALES_AI_API_BASE;
-  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-    if (["127.0.0.1", "localhost"].includes(window.location.hostname) && window.location.port === "8080") {
-      return `${window.location.protocol}//${window.location.hostname}:8000`;
-    }
-    return window.location.origin;
-  }
-  return "http://127.0.0.1:8000";
-}
-
-const demoCustomers = [
-  {
-    id: "demo-1",
-    name: "王先生",
-    phone: "13800000000",
-    intent_level: "高意向",
-    intent_score: 86,
-    demand_summary: "询问价格、安装时间和优惠政策",
-    next_action: "今天电话跟进，重点确认预算和交付时间",
-  },
-  {
-    id: "demo-2",
-    name: "李女士",
-    phone: "13900000000",
-    intent_level: "中意向",
-    intent_score: 62,
-    demand_summary: "正在对比方案，关心售后",
-    next_action: "发送案例和售后说明，明天下午回访",
-  },
-  {
-    id: "demo-3",
-    name: "周先生",
-    phone: "13700001111",
-    intent_level: "低意向",
-    intent_score: 28,
-    demand_summary: "先看看产品资料，暂时没有预算",
-    next_action: "发送基础资料，月底再回访",
-  },
-  {
-    id: "demo-4",
-    name: "孙女士",
-    phone: "13600002222",
-    intent_level: "暂无意向",
-    intent_score: 0,
-    demand_summary: "今年不考虑，明年再看",
-    next_action: "暂缓跟进，保留客户信息",
-  },
-  {
-    id: "demo-5",
-    name: "未命名客户",
-    phone: "",
-    intent_level: "无法判断",
-    intent_score: 0,
-    demand_summary: "资料内容不足，无法判断购买意向",
-    next_action: "补充微信截图或录音后重新分析",
-  },
-];
-
-const demoUploads = [
-  { id: "demo-u1", file_name: "微信聊天截图.jpg", file_type: "image", status: "completed", customer_id: "demo-1", created_at: new Date().toISOString() },
-  { id: "demo-u2", file_name: "电话录音.mp3", file_type: "audio", status: "completed", customer_id: "demo-2", created_at: new Date().toISOString() },
-];
-
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => Array.from(document.querySelectorAll(selector));
-
 const views = {
-  dashboard: { title: "销售 AI 线索雷达", el: $("#dashboardView"), load: loadDashboard },
-  customers: { title: "客户池", el: $("#customersView"), load: loadCustomers },
-  uploads: { title: "资料分析", el: $("#uploadsView"), load: loadUploads },
-  leads: { title: "意向线索", el: $("#leadsView"), load: loadLeads },
-  users: { title: "销售账号", el: $("#usersView"), load: loadUsers },
+  dashboard: { title: "今日工作台", load: loadDashboard },
+  customers: { title: "客户池", load: loadCustomers },
+  uploads: { title: "资料处理", load: loadUploads },
+  assignment: { title: "线索分配", load: loadAssignment, admin: true },
+  team: { title: "团队看板", load: loadTeam, admin: true },
+  scripts: { title: "销售话术", load: loadScripts },
+  users: { title: "销售账号", load: loadUsers, admin: true },
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -104,57 +30,81 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   bindEvents();
   updateAuthUi();
+  updateDateLabels();
   switchView("dashboard");
 });
 
-function bindEvents() {
-  $("#loginForm").addEventListener("submit", handleLogin);
-  $("#logoutBtn").addEventListener("click", logout);
-  $("#railLoginBtn").addEventListener("click", openLogin);
-  $("#loginOpenBtn").addEventListener("click", openLogin);
-  $("#testAiBtn").addEventListener("click", testDeepSeek);
-  $("#refreshBtn").addEventListener("click", () => views[state.view].load());
-  $("#openUploadBtn").addEventListener("click", () => requireLogin(() => $("#uploadDialog").showModal()));
-  $("#heroUploadBtn").addEventListener("click", () => requireLogin(() => $("#uploadDialog").showModal()));
-  $("#uploadForm").addEventListener("submit", handleUpload);
-  $("#detailDialog").addEventListener("close", clearPreviewObjectUrls);
-  $("#searchCustomersBtn").addEventListener("click", loadCustomers);
-  $("#searchUploadsBtn").addEventListener("click", loadUploads);
-  $("#createUserForm").addEventListener("submit", handleCreateUser);
-  $("#userKeyword").addEventListener("input", () => state.token && state.user?.role === "admin" && loadUsers());
-  $$("[data-dashboard-intent]").forEach((card) => {
-    card.addEventListener("click", () => {
-      state.leadIntent = card.dataset.dashboardIntent;
-      switchView("leads");
-    });
-  });
-  $$("#leadIntentTabs .segment").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.leadIntent = button.dataset.intent;
-      loadLeads();
-    });
-  });
+function initialApiBase() {
+  const saved = localStorage.getItem("salesAiApiBase");
+  if (saved) return saved;
+  if (location.hostname === "127.0.0.1" || location.hostname === "localhost") {
+    return `${location.protocol}//${location.hostname}:8100`;
+  }
+  return location.origin || "http://127.0.0.1:8100";
+}
 
-  $$("[data-open-login]").forEach((button) => button.addEventListener("click", openLogin));
+function bindEvents() {
+  $("#loginOpenBtn").addEventListener("click", openLogin);
+  $("#logoutBtn").addEventListener("click", logout);
+  $("#loginForm").addEventListener("submit", login);
+  $("#refreshBtn").addEventListener("click", () => views[state.view].load());
+  $("#testAiBtn").addEventListener("click", testAi);
+  $("#openUploadBtn").addEventListener("click", openUpload);
+  $$("[data-open-upload]").forEach((button) => button.addEventListener("click", openUpload));
+  $("#uploadForm").addEventListener("submit", submitUpload);
+  $("#detailDialog").addEventListener("close", clearPreviewUrls);
+
   $$(".nav-btn").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
   $$("[data-view-link]").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.viewLink)));
   $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
+
+  $("#searchCustomersBtn").addEventListener("click", loadCustomers);
+  $("#customerKeyword").addEventListener("keydown", enterTo(loadCustomers));
+  $("#customerOwner").addEventListener("change", loadCustomers);
+  $("#customerIntent").addEventListener("change", loadCustomers);
+  $("#customerDateQuick").addEventListener("change", () => clearExactDate("customer", loadCustomers));
+  $("#customerDateExact").addEventListener("change", () => clearQuickDate("customer", loadCustomers));
+
+  $("#searchUploadsBtn").addEventListener("click", loadUploads);
+  $("#uploadKeyword").addEventListener("keydown", enterTo(loadUploads));
+  $("#uploadStage").addEventListener("change", loadUploads);
+  $("#uploadType").addEventListener("change", loadUploads);
+  $("#uploadDateQuick").addEventListener("change", () => clearExactDate("upload", loadUploads));
+  $("#uploadDateExact").addEventListener("change", () => clearQuickDate("upload", loadUploads));
+
+  $("#searchAssignmentBtn").addEventListener("click", loadAssignment);
+  $("#assignmentKeyword").addEventListener("keydown", enterTo(loadAssignment));
+  $("#assignmentSource").addEventListener("change", loadAssignment);
+  $("#openLeadCreateBtn").addEventListener("click", () => requireAdmin(() => $("#leadCreateDialog").showModal()));
+  $("#leadCreateForm").addEventListener("submit", submitLead);
+
+  $("#searchScriptsBtn").addEventListener("click", loadScripts);
+  $("#scriptKeyword").addEventListener("keydown", enterTo(loadScripts));
+  $("#scriptCategory").addEventListener("keydown", enterTo(loadScripts));
+  $("#openScriptCreateBtn").addEventListener("click", () => requireAdmin(() => $("#scriptCreateDialog").showModal()));
+  $("#scriptCreateForm").addEventListener("submit", submitScript);
+  $("#createUserForm").addEventListener("submit", submitUser);
 }
 
-async function handleLogin(event) {
+function enterTo(fn) {
+  return (event) => {
+    if (event.key === "Enter") fn();
+  };
+}
+
+async function login(event) {
   event.preventDefault();
-  hideLoginError();
+  $("#loginError").hidden = true;
   state.apiBase = $("#apiBase").value.trim().replace(/\/$/, "");
   localStorage.setItem("salesAiApiBase", state.apiBase);
-
   try {
     const result = await api("/api/auth/login", {
       method: "POST",
+      auth: false,
       body: JSON.stringify({
         username: $("#loginUsername").value.trim(),
         password: $("#loginPassword").value,
       }),
-      auth: false,
     });
     state.token = result.access_token;
     state.user = result.user;
@@ -162,40 +112,32 @@ async function handleLogin(event) {
     localStorage.setItem("salesAiUser", JSON.stringify(state.user));
     $("#loginDialog").close();
     updateAuthUi();
-    showNotice("登录成功，已切换为真实数据。", "ok");
+    showNotice("登录成功，已切换到真实数据。", "ok");
     await views[state.view].load();
   } catch (error) {
-    showLoginError(readableError(error));
+    $("#loginError").textContent = readableError(error);
+    $("#loginError").hidden = false;
   }
 }
 
-function updateAuthUi() {
-  const isLogin = Boolean(state.token && state.user);
-  $("#accountName").textContent = isLogin ? state.user.name : "未登录";
-  $("#accountHint").textContent = isLogin ? (state.user.role === "admin" ? "管理员可查看全部数据。" : "销售只能查看自己的线索。") : "可以先浏览示例，登录后查看真实数据。";
-  $("#userRole").textContent = isLogin ? (state.user.role === "admin" ? "管理员" : "销售") : "未登录";
-  $("#loginOpenBtn").hidden = isLogin;
-  $("#railLoginBtn").hidden = isLogin;
-  $("#logoutBtn").hidden = !isLogin;
-  $("#modeBanner").hidden = isLogin;
-  $("#connectionPill").textContent = isLogin ? "真实数据" : "示例浏览";
-  document.querySelector('[data-view="users"]').style.display = isLogin && state.user.role === "admin" ? "" : "none";
-}
-
 function logout() {
-  localStorage.removeItem("salesAiToken");
-  localStorage.removeItem("salesAiUser");
   state.token = "";
   state.user = null;
+  state.salesUsers = [];
+  localStorage.removeItem("salesAiToken");
+  localStorage.removeItem("salesAiUser");
   updateAuthUi();
   switchView("dashboard");
-  showNotice("已退出登录，当前显示示例数据。", "ok");
+  showNotice("已退出登录。", "ok");
 }
 
 function openLogin() {
-  hideLoginError();
   $("#apiBase").value = state.apiBase;
   $("#loginDialog").showModal();
+}
+
+function openUpload() {
+  requireLogin(() => $("#uploadDialog").showModal());
 }
 
 function requireLogin(action) {
@@ -203,163 +145,328 @@ function requireLogin(action) {
     action();
     return true;
   }
-  showNotice("这个操作需要登录。你可以先看示例，再登录使用真实数据。");
   openLogin();
+  showNotice("请先登录后再操作。");
   return false;
 }
 
+function requireAdmin(action) {
+  if (!state.token) return requireLogin(action);
+  if (state.user?.role !== "admin") {
+    showNotice("这个功能需要管理员账号。");
+    return false;
+  }
+  action();
+  return true;
+}
+
+function updateAuthUi() {
+  const loggedIn = Boolean(state.token && state.user);
+  $("#accountName").textContent = loggedIn ? state.user.name || state.user.username : "未登录";
+  $("#accountHint").textContent = loggedIn
+    ? state.user.role === "admin" ? "主管可查看全部客户、分配线索和团队进度。" : "销售只看自己负责的客户。"
+    : "登录后查看真实客户和 AI 分析结果。";
+  $("#loginOpenBtn").hidden = loggedIn;
+  $("#logoutBtn").hidden = !loggedIn;
+  $$(".admin-only").forEach((item) => {
+    item.hidden = !(loggedIn && state.user?.role === "admin");
+  });
+  $("#connectionPill").textContent = loggedIn ? (state.user.role === "admin" ? "主管视角" : "销售视角") : "请先登录";
+  if (loggedIn && state.user.role === "admin") loadSalesUsers();
+}
+
 function switchView(name) {
-  if (name === "users" && (!state.user || state.user.role !== "admin")) {
-    showNotice("销售账号管理需要管理员登录。");
-    openLogin();
-    return;
+  const view = views[name];
+  if (!view) return;
+  if (view.admin && state.user?.role !== "admin") {
+    showNotice("这个页面需要管理员账号。");
+    return openLogin();
   }
   state.view = name;
-  Object.entries(views).forEach(([key, view]) => view.el.classList.toggle("active-view", key === name));
+  $(".active-view")?.classList.remove("active-view");
+  $(`#${name}View`).classList.add("active-view");
   $$(".nav-btn").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
-  $("#viewTitle").textContent = views[name].title;
-  hideNotice();
-  views[name].load();
+  $("#viewTitle").textContent = view.title;
+  view.load();
 }
 
 async function loadDashboard() {
-  if (!state.token) return renderDashboardDemo();
+  if (!state.token) {
+    renderLockedDashboard();
+    return;
+  }
   try {
     const [stats, priorities, uploads] = await Promise.all([
       api("/api/dashboard/stats"),
-      api("/api/dashboard/followup-priorities?limit=5"),
-      api("/api/uploads?page_size=5"),
+      api("/api/dashboard/followup-priorities?limit=8"),
+      api("/api/uploads?page_size=6"),
     ]);
-    const counts = {
-      高意向: stats.intent_distribution?.["高意向"] ?? 0,
-      中意向: stats.intent_distribution?.["中意向"] ?? 0,
-      低意向: stats.intent_distribution?.["低意向"] ?? 0,
-      暂无意向: stats.intent_distribution?.["暂无意向"] ?? 0,
-      无法判断: stats.intent_distribution?.["无法判断"] ?? 0,
-    };
-    renderIntentMetrics(counts);
-    renderLeadStack($("#dashboardLeads"), priorities);
-    renderTimeline($("#dashboardUploads"), uploads.items);
+    const dist = stats.intent_distribution || {};
+    $("#metricHigh").textContent = dist["高意向"] || stats.high_intent_customers || 0;
+    $("#metricMid").textContent = dist["中意向"] || 0;
+    $("#metricLow").textContent = dist["低意向"] || 0;
+    $("#metricUnassigned").textContent = stats.unassigned_customers || 0;
+    renderPriorityList(priorities);
+    renderUploadTimeline(uploads.items || []);
   } catch (error) {
     showNotice(readableError(error));
-    renderIntentMetrics(null);
   }
 }
 
-function renderDashboardDemo() {
-  renderIntentMetrics({
-    高意向: 24,
-    中意向: 48,
-    低意向: 31,
-    暂无意向: 12,
-    无法判断: 13,
-  });
-  renderLeadStack($("#dashboardLeads"), demoCustomers.map((item, index) => ({
-    ...item,
-    next_followup_at: new Date(Date.now() + (index + 1) * 60 * 60 * 1000).toISOString(),
-    followup_content: `跟进优先级：${item.intent_level === "高意向" ? "紧急跟进，建议2小时内联系" : "按节奏培育"}\n下一步建议：${item.next_action}`,
-  })));
-  renderTimeline($("#dashboardUploads"), demoUploads);
+function renderLockedDashboard() {
+  ["metricHigh", "metricMid", "metricLow", "metricUnassigned"].forEach((id) => $(`#${id}`).textContent = "--");
+  $("#priorityList").innerHTML = `<p class="empty">登录后显示今天最该跟进的客户。</p>`;
+  $("#uploadTimeline").innerHTML = `<p class="empty">登录后显示最近处理的截图、录音和资料。</p>`;
 }
 
-function renderIntentMetrics(counts) {
-  const fallback = counts || { 高意向: "--", 中意向: "--", 低意向: "--", 暂无意向: "--", 无法判断: "--" };
-  $("#metricHighIntent").textContent = fallback["高意向"];
-  $("#metricMidIntent").textContent = fallback["中意向"];
-  $("#metricLowIntent").textContent = fallback["低意向"];
-  $("#metricNoIntent").textContent = fallback["暂无意向"];
-  $("#metricUnknownIntent").textContent = fallback["无法判断"];
+function renderPriorityList(items) {
+  $("#priorityList").innerHTML = items.length ? items.map((item) => `
+    <article class="lead-card">
+      <div class="lead-top">
+        <div>
+          <strong>${esc(item.name || item.wechat_nickname || item.phone || "未命名客户")}</strong>
+          <p>${esc(item.owner_name || item.owner_username || "未分配销售")} · ${esc(item.demand_summary || item.followup_content || "暂无需求摘要")}</p>
+        </div>
+        ${intentBadge(item.intent_level, item.intent_score)}
+      </div>
+      <p>${esc(item.next_action || firstLine(item.followup_content) || "等待补充下一步动作")}</p>
+      <div class="row-actions">
+        <button class="ghost-btn" type="button" onclick="showCustomerDetail(${item.customer_id || item.id})">查看客户</button>
+        ${item.followup_id ? `<button class="primary-btn" type="button" onclick="markFollowup(${item.followup_id}, 'completed')">标记完成</button>` : ""}
+      </div>
+    </article>`).join("") : `<p class="empty">暂无待跟进客户。</p>`;
+}
+
+function renderUploadTimeline(items) {
+  $("#uploadTimeline").innerHTML = items.length ? items.map((item) => `
+    <article class="timeline-row">
+      <div><strong>${esc(item.file_name)}</strong><p>${fileTypeText(item.file_type)} · ${sourceTimeText(item)} · 入库 ${formatDate(item.created_at)}</p></div>
+      ${statusBadge(item.material_stage || item.status)}
+    </article>`).join("") : `<p class="empty">暂无资料记录。</p>`;
 }
 
 async function loadCustomers() {
-  if (!state.token) {
-    $("#customersTable").innerHTML = demoCustomers.map(renderCustomerRow).join("");
-    return;
-  }
+  if (!state.token) return $("#customersTable").innerHTML = emptyRow(8, "请先登录后查看客户。");
   try {
-    const params = new URLSearchParams({
-      page_size: "50",
-      keyword: $("#customerKeyword").value.trim(),
-      intent_level: $("#customerIntent").value,
-    });
+    const params = new URLSearchParams({ page_size: "80" });
+    const keyword = joinKeywords($("#customerKeyword").value.trim(), selectedDateKeyword("customer"));
+    if (keyword) params.set("keyword", keyword);
+    if ($("#customerIntent").value) params.set("intent_level", $("#customerIntent").value);
+    if ($("#customerOwner").value === "__unassigned") params.set("lead_status", "unassigned");
+    else if ($("#customerOwner").value) params.set("owner_id", $("#customerOwner").value);
     const data = await api(`/api/customers?${params}`);
-    $("#customersTable").innerHTML = data.items.length ? data.items.map(renderCustomerRow).join("") : emptyTableRow(6, "暂无客户。上传资料后会自动生成客户。");
+    $("#customersTable").innerHTML = data.items.length ? data.items.map(renderCustomerRow).join("") : emptyRow(8, "没有找到客户。");
   } catch (error) {
     showNotice(readableError(error));
   }
+}
+
+function renderCustomerRow(item) {
+  return `<tr>
+    <td><span class="cell-main">${esc(item.name || "未命名客户")}</span><span class="cell-sub">ID ${item.id}</span></td>
+    <td>${wechatCell(item)}</td>
+    <td>${phoneCell(item.phone)}</td>
+    <td>${ownerCell(item)}</td>
+    <td>${intentBadge(item.intent_level, item.intent_score)}</td>
+    <td><span class="cell-main">${esc(item.demand_summary || "未提及")}</span></td>
+    <td><span class="cell-main">${esc(item.next_action || "未提及")}</span></td>
+    <td><div class="row-actions"><button class="ghost-btn" type="button" onclick="showCustomerDetail(${item.id})">查看</button></div></td>
+  </tr>`;
 }
 
 async function loadUploads() {
-  if (!state.token) {
-    $("#uploadsTable").innerHTML = demoUploads.map(renderUploadRow).join("");
-    return;
-  }
+  if (!state.token) return $("#uploadsTable").innerHTML = emptyRow(7, "请先登录后查看资料。");
   try {
-    const params = new URLSearchParams({
-      page_size: "50",
-      status: $("#uploadStatus").value,
-      file_type: $("#uploadType").value,
-    });
+    const params = new URLSearchParams({ page_size: "80" });
+    const keyword = joinKeywords($("#uploadKeyword").value.trim(), selectedDateKeyword("upload"));
+    if (keyword) params.set("keyword", keyword);
+    if ($("#uploadStage").value) params.set("material_stage", $("#uploadStage").value);
+    if ($("#uploadType").value) params.set("file_type", $("#uploadType").value);
     const data = await api(`/api/uploads?${params}`);
-    $("#uploadsTable").innerHTML = data.items.length ? data.items.map(renderUploadRow).join("") : emptyTableRow(6, "暂无上传记录。");
+    $("#uploadsTable").innerHTML = data.items.length ? data.items.map(renderUploadRow).join("") : emptyRow(7, "暂无资料记录。");
   } catch (error) {
     showNotice(readableError(error));
   }
 }
 
-async function loadLeads() {
-  $$("#leadIntentTabs .segment").forEach((button) => {
-    button.classList.toggle("active", button.dataset.intent === state.leadIntent);
-  });
-  if (!state.token) {
-    $("#leadsTable").innerHTML = demoCustomers
-      .filter((item) => item.intent_level === state.leadIntent)
-      .map(renderLeadRow)
-      .join("") || emptyTableRow(6, `暂无${state.leadIntent}客户。`);
-    return;
-  }
+function renderUploadRow(item) {
+  return `<tr>
+    <td><span class="cell-main">${esc(item.file_name)}</span><span class="cell-sub">ID ${item.id}</span></td>
+    <td>${fileTypeText(item.file_type)}</td>
+    <td>${statusBadge(item.material_stage || item.status)}<span class="cell-sub">${statusText(item.status)}</span></td>
+    <td>${item.customer_id ? `<span class="cell-main">${esc(item.customer_name || `客户 ${item.customer_id}`)}</span><span class="cell-sub">${esc(item.customer_phone || `ID ${item.customer_id}`)}</span>` : "未归档"}</td>
+    <td>${uploaderCell(item)}</td>
+    <td><span class="cell-main">${sourceTimeText(item)}</span><span class="cell-sub">入库 ${formatDate(item.created_at)}</span></td>
+    <td><div class="row-actions"><button class="ghost-btn" type="button" onclick="showUploadDetail(${item.id})">分析</button><button class="ghost-btn" type="button" onclick="reanalyzeUpload(${item.id})">重跑</button></div></td>
+  </tr>`;
+}
+
+async function loadAssignment() {
+  if (!state.token || state.user?.role !== "admin") return;
+  if (!state.salesUsers.length) await loadSalesUsers();
   try {
-    const params = new URLSearchParams({
-      page_size: "50",
-      intent_level: state.leadIntent,
-    });
-    const data = await api(`/api/leads?${params}`);
-    $("#leadsTable").innerHTML = data.items.length ? data.items.map(renderLeadRow).join("") : emptyTableRow(6, `暂无${state.leadIntent}客户。`);
+    const params = new URLSearchParams({ page_size: "100", lead_status: "unassigned" });
+    if ($("#assignmentKeyword").value.trim()) params.set("keyword", $("#assignmentKeyword").value.trim());
+    if ($("#assignmentSource").value) params.set("lead_source", $("#assignmentSource").value);
+    const data = await api(`/api/customers?${params}`);
+    $("#assignmentTable").innerHTML = data.items.length ? data.items.map(renderAssignmentRow).join("") : emptyRow(6, "暂无未分配线索。");
   } catch (error) {
     showNotice(readableError(error));
   }
+}
+
+function renderAssignmentRow(item) {
+  return `<tr>
+    <td><span class="cell-main">${esc(item.name || item.wechat_nickname || "未命名客户")}</span><span class="cell-sub">ID ${item.id}</span></td>
+    <td>${esc(item.lead_source || item.source || "外部线索")}</td>
+    <td>${phoneCell(item.phone)}<span class="cell-sub">${esc(item.wechat_id || item.wechat_nickname || "微信未提及")}</span></td>
+    <td>${esc(item.demand_summary || "未提及")}</td>
+    <td><select data-assign="${item.id}">${salesOptions()}</select></td>
+    <td><div class="row-actions"><button class="primary-btn" type="button" onclick="assignCustomer(${item.id})">分配</button><button class="ghost-btn" type="button" onclick="showCustomerDetail(${item.id})">查看</button></div></td>
+  </tr>`;
+}
+
+async function loadTeam() {
+  if (!state.token || state.user?.role !== "admin") return;
+  try {
+    const data = await api("/api/dashboard/team-today");
+    const totals = (data.items || []).reduce((acc, item) => {
+      acc.customers += item.today_customers || 0;
+      acc.followups += item.today_followups || 0;
+      acc.uploads += item.today_uploads || 0;
+      return acc;
+    }, { customers: 0, followups: 0, uploads: 0 });
+    $("#teamUnassigned").textContent = data.unassigned_customers || 0;
+    $("#teamTodayCustomers").textContent = totals.customers;
+    $("#teamTodayFollowups").textContent = totals.followups;
+    $("#teamTodayUploads").textContent = totals.uploads;
+    $("#teamTable").innerHTML = data.items.length ? data.items.map(renderTeamRow).join("") : emptyRow(8, "暂无销售账号。");
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+function renderTeamRow(item) {
+  return `<tr>
+    <td><span class="cell-main">${esc(item.name)}</span><span class="cell-sub">${esc(item.username)} · ${esc(item.phone || "未填手机号")}</span></td>
+    <td>${item.today_customers}</td><td>${item.today_followups}</td><td>${item.today_uploads}</td>
+    <td>${item.high_intent_customers}</td><td>${item.pending_followup_customers}</td><td>${item.total_customers}</td>
+    <td><button class="ghost-btn" type="button" onclick="openSalesCustomers(${item.user_id})">看客户</button></td>
+  </tr>`;
+}
+
+async function loadScripts() {
+  if (!state.token) return $("#scriptList").innerHTML = `<p class="empty">请先登录后查看话术库。</p>`;
+  try {
+    const params = new URLSearchParams({ page_size: "100" });
+    if ($("#scriptKeyword").value.trim()) params.set("keyword", $("#scriptKeyword").value.trim());
+    if ($("#scriptCategory").value.trim()) params.set("category", $("#scriptCategory").value.trim());
+    const data = await api(`/api/scripts?${params}`);
+    $("#scriptList").innerHTML = data.items.length ? data.items.map(renderScriptCard).join("") : `<p class="empty">暂无话术。</p>`;
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+function renderScriptCard(item) {
+  return `<article class="script-card">
+    <strong>${esc(item.title)}</strong>
+    <p>${esc(item.category || "general")}</p>
+    <pre>${esc(item.content)}</pre>
+    ${state.user?.role === "admin" ? `<div class="row-actions"><button class="danger-btn" type="button" onclick="deleteScript(${item.id})">删除</button></div>` : ""}
+  </article>`;
 }
 
 async function loadUsers() {
-  if (!state.token || state.user?.role !== "admin") {
-    $("#usersList").innerHTML = `<p class="empty">管理员登录后可以查看和新增销售账号。</p>`;
-    return;
-  }
+  if (!state.token || state.user?.role !== "admin") return;
   try {
-    const keyword = encodeURIComponent($("#userKeyword").value.trim());
-    const data = await api(`/api/users?keyword=${keyword}`);
-    $("#usersList").innerHTML = data.length ? data.map(renderUserRow).join("") : `<p class="empty">暂无销售账号。</p>`;
+    const users = await api("/api/users?role=sales&page_size=100");
+    $("#userList").innerHTML = users.length ? users.map((user) => `
+      <article class="user-row"><div><strong>${esc(user.name)}</strong><p>${esc(user.username)} · ${esc(user.phone || "未填手机号")}</p></div>${statusBadge(user.status === "active" ? "ok" : "none", user.status === "active" ? "启用" : "停用")}</article>
+    `).join("") : `<p class="empty">暂无销售账号。</p>`;
   } catch (error) {
     showNotice(readableError(error));
   }
 }
 
-async function handleUpload(event) {
+async function loadSalesUsers() {
+  if (!state.token || state.user?.role !== "admin") return [];
+  try {
+    state.salesUsers = await api("/api/users?role=sales&status=active&page_size=200");
+    populateSalesSelectors();
+  } catch (error) {
+    console.warn(error);
+  }
+  return state.salesUsers;
+}
+
+function populateSalesSelectors() {
+  const options = state.salesUsers.map((user) => `<option value="${user.id}">${esc(user.name)}（${esc(user.username)}）</option>`).join("");
+  const currentOwner = $("#customerOwner").value;
+  $("#customerOwner").innerHTML = `<option value="">全部销售</option><option value="__unassigned">未分配</option>${options}`;
+  $("#customerOwner").value = currentOwner;
+  $("#leadCreateOwner").innerHTML = `<option value="">先放入未分配池</option>${options}`;
+}
+
+async function submitUpload(event) {
   event.preventDefault();
   if (!state.token) return openLogin();
   const form = event.currentTarget;
+  const file = form.file.files[0];
+  if (!file) return;
+  const data = new FormData(form);
   try {
-    const result = await api("/api/uploads", { method: "POST", body: new FormData(form), isForm: true });
-    $("#uploadDialog").close();
+    const result = await api("/api/uploads", { method: "POST", body: data, isForm: true });
     form.reset();
-    showNotice(`上传成功，记录编号：${result.id}`, "ok");
-    await views[state.view].load();
+    $("#uploadDialog").close();
+    showNotice(`上传成功，记录 ${result.id} 正在分析。`, "ok");
+    await loadUploads();
   } catch (error) {
     showNotice(readableError(error));
   }
 }
 
-async function handleCreateUser(event) {
+async function submitLead(event) {
+  event.preventDefault();
+  if (!state.token || state.user?.role !== "admin") return openLogin();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  if (data.owner_id) {
+    data.owner_id = Number(data.owner_id);
+    data.lead_status = "assigned";
+  } else {
+    delete data.owner_id;
+    data.lead_status = "unassigned";
+  }
+  data.source = data.lead_source || "外部线索";
+  try {
+    await api("/api/customers", { method: "POST", body: JSON.stringify(data) });
+    form.reset();
+    $("#leadCreateDialog").close();
+    showNotice("线索已保存。", "ok");
+    await loadAssignment();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function submitScript(event) {
+  event.preventDefault();
+  if (!state.token || state.user?.role !== "admin") return openLogin();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  try {
+    await api("/api/scripts", { method: "POST", body: JSON.stringify(data) });
+    form.reset();
+    $("#scriptCreateDialog").close();
+    showNotice("话术已保存。", "ok");
+    await loadScripts();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function submitUser(event) {
   event.preventDefault();
   if (!state.token || state.user?.role !== "admin") return openLogin();
   const form = event.currentTarget;
@@ -369,24 +476,252 @@ async function handleCreateUser(event) {
     await api("/api/users", { method: "POST", body: JSON.stringify(data) });
     form.reset();
     showNotice("销售账号已创建。", "ok");
+    await loadSalesUsers();
     await loadUsers();
   } catch (error) {
     showNotice(readableError(error));
   }
 }
 
-async function testDeepSeek() {
-  if (!state.token) return openLogin();
-  if (state.user?.role !== "admin") {
-    showNotice("检测 AI 需要管理员账号。");
-    return;
+async function assignCustomer(id) {
+  const select = document.querySelector(`[data-assign="${id}"]`);
+  const ownerId = Number(select?.value || 0);
+  if (!ownerId) return showNotice("请先选择销售。");
+  try {
+    await api(`/api/customers/${id}/assign`, { method: "POST", body: JSON.stringify({ owner_id: ownerId }) });
+    showNotice("线索已分配。", "ok");
+    await loadAssignment();
+  } catch (error) {
+    showNotice(readableError(error));
   }
+}
+
+async function showCustomerDetail(id) {
+  if (!state.token) return openLogin();
+  try {
+    const [customer, records, followups, quotes] = await Promise.all([
+      api(`/api/customers/${id}`),
+      api(`/api/customers/${id}/records`),
+      api(`/api/customers/${id}/followups`),
+      api(`/api/quotations/${id}`).catch(() => []),
+    ]);
+    $("#detailTitle").textContent = customer.name || customer.phone || `客户 ${customer.id}`;
+    $("#detailSubtitle").textContent = `${customer.owner_name || customer.owner_username || "未分配销售"} · ${customer.lead_source || customer.source || "AI上传"}`;
+    $("#detailContent").innerHTML = `
+      <section class="detail-grid">
+        ${detailItem("负责销售", ownerCell(customer))}
+        ${detailItem("微信号", esc(customer.wechat_id || "未提及"))}
+        ${detailItem("微信昵称/备注", esc(customer.wechat_nickname || "未提及"))}
+        ${detailItem("客户电话", phoneCell(customer.phone))}
+        ${detailItem("当前意向", intentBadge(customer.intent_level, customer.intent_score))}
+        ${detailItem("销售阶段", stageText(customer.pipeline_stage))}
+        ${detailItem("客户需求", esc(customer.demand_summary || "未提及"), true)}
+        ${detailItem("疑问/异议", esc(customer.concerns || "未提及"), true)}
+        ${detailItem("下一步建议", esc(customer.next_action || "未提及"), true)}
+      </section>
+      <details class="detail-item full" open>
+        <summary><strong>编辑客户资料</strong></summary>
+        <form class="form-grid" onsubmit="submitCustomerEdit(event, ${customer.id})">
+          <label>客户姓名<input name="name" value="${esc(customer.name || "")}" /></label>
+          <label>客户电话<input name="phone" value="${esc(customer.phone || "")}" /></label>
+          <label>微信号<input name="wechat_id" value="${esc(customer.wechat_id || "")}" /></label>
+          <label>微信昵称/备注<input name="wechat_nickname" value="${esc(customer.wechat_nickname || "")}" /></label>
+          <label>意向等级<select name="intent_level">${intentOptions(customer.intent_level)}</select></label>
+          <label>意向评分<input name="intent_score" type="number" min="0" max="100" value="${Number(customer.intent_score || 0)}" /></label>
+          <label>销售阶段<select name="pipeline_stage">${stageOptions(customer.pipeline_stage)}</select></label>
+          <label>关注产品<input name="product_interest" value="${esc(customer.product_interest || "")}" /></label>
+          <label class="full">客户需求<textarea name="demand_summary" rows="2">${esc(customer.demand_summary || "")}</textarea></label>
+          <label class="full">下一步建议<textarea name="next_action" rows="2">${esc(customer.next_action || "")}</textarea></label>
+          <div class="modal-actions full"><button class="primary-btn" type="submit">保存修改</button><button class="danger-btn" type="button" onclick="deleteCustomer(${customer.id})">删除客户</button></div>
+        </form>
+      </details>
+      <section class="detail-item full">
+        <span>历史资料</span>
+        ${records.length ? records.map(renderRecordCard).join("") : "<p>暂无资料。</p>"}
+      </section>
+      <section class="detail-item full">
+        <span>跟进记录</span>
+        ${followups.length ? followups.map(renderFollowupCard).join("") : "<p>暂无跟进记录。</p>"}
+      </section>
+      <section class="detail-item full">
+        <span>报价单</span>
+        ${renderQuotationBox(customer.id, quotes)}
+      </section>
+    `;
+    await hydrateRecordPreviews();
+    openDetailAtTop();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+function renderRecordCard(record) {
+  const analysis = record.analysis || {};
+  return `<article class="lead-card">
+    <div class="lead-top"><div><strong>${esc(record.file_name)}</strong><p>${fileTypeText(record.file_type)} · ${formatDate(record.created_at)}</p></div>${statusBadge(record.status)}</div>
+    ${record.file_type === "image" ? `<div class="media-box" data-image="${record.id}">正在加载原图...</div>` : ""}
+    ${record.file_type === "audio" ? `<div class="media-box" data-audio="${record.id}">正在加载录音...</div>` : ""}
+    <p><b>摘要：</b>${esc(analysis.summary || "未提及")}</p>
+    <p><b>话术：</b>${esc(analysis.sales_script || "未提及")}</p>
+    <div class="row-actions"><button class="ghost-btn" type="button" onclick="showUploadDetail(${record.id})">查看分析</button></div>
+  </article>`;
+}
+
+function renderFollowupCard(item) {
+  return `<article class="lead-card">
+    <div class="lead-top"><strong>${followupSourceText(item.source)}</strong>${statusBadge(item.status || "pending")}</div>
+    <p>${esc(item.content)}</p>
+    <div class="row-actions">
+      <button class="ghost-btn" type="button" onclick="markFollowup(${item.id}, 'contacted')">已联系</button>
+      <button class="primary-btn" type="button" onclick="markFollowup(${item.id}, 'completed')">完成</button>
+    </div>
+  </article>`;
+}
+
+function renderQuotationBox(customerId, quotes) {
+  return `
+    <form class="inline-form" onsubmit="submitQuotation(event, ${customerId})">
+      <input name="title" placeholder="报价标题" />
+      <input name="item_name" placeholder="项目名称" required />
+      <input name="qty" type="number" min="1" value="1" required />
+      <input name="unit_price" type="number" min="0" step="0.01" placeholder="单价" required />
+      <button class="primary-btn" type="submit">生成报价</button>
+    </form>
+    ${quotes.length ? quotes.map((q) => `<article class="lead-card"><div class="lead-top"><strong>${esc(q.title || `报价 ${q.id}`)}</strong>${statusBadge(q.status)}</div><p>金额：${q.total_amount} 元 · ${formatDate(q.created_at)}</p><div class="row-actions"><button class="ghost-btn" type="button" onclick="updateQuotationStatus(${q.id}, 'sent', ${customerId})">标记已发送</button><button class="primary-btn" type="button" onclick="updateQuotationStatus(${q.id}, 'accepted', ${customerId})">已成交</button></div></article>`).join("") : "<p>暂无报价单。</p>"}
+  `;
+}
+
+async function showUploadDetail(id) {
+  if (!state.token) return openLogin();
+  try {
+    const upload = await api(`/api/uploads/${id}`);
+    clearPreviewUrls();
+    let media = "";
+    if (upload.file_type === "image" || upload.file_type === "audio") {
+      try {
+        const url = rememberPreviewUrl(await apiBlob(`/api/uploads/${id}/file`));
+        media = upload.file_type === "image"
+          ? `<section class="media-box full"><span>原始图片</span><img src="${esc(url)}" alt="${esc(upload.file_name)}" /></section>`
+          : `<section class="media-box full"><span>原始录音</span><audio controls src="${esc(url)}"></audio></section>`;
+      } catch (error) {
+        media = detailItem("原文件", `加载失败：${esc(readableError(error))}`, true);
+      }
+    }
+    const analysis = upload.analysis;
+    $("#detailTitle").textContent = upload.file_name;
+    $("#detailSubtitle").textContent = `${fileTypeText(upload.file_type)} · ${statusText(upload.status)}`;
+    $("#detailContent").innerHTML = analysis ? `<section class="detail-grid">
+      ${media}
+      ${detailItem("处理状态", statusBadge(upload.material_stage || upload.status))}
+      ${detailItem("上传销售", uploaderCell(upload))}
+      ${detailItem("客户姓名", esc(analysis.customer_name || "未提及"))}
+      ${detailItem("微信号", esc(analysis.customer_wechat_id || "未提及"))}
+      ${detailItem("微信昵称/备注", esc(analysis.customer_wechat_nickname || "未提及"))}
+      ${detailItem("购买意向", intentBadge(analysis.intent_level, analysis.intent_score))}
+      ${detailItem("内容摘要", esc(analysis.summary || "未提及"), true)}
+      ${detailItem("客户需求", esc(analysis.customer_needs || "未提及"), true)}
+      ${detailItem("判断依据", esc(analysis.evidence || "未提及"), true)}
+      ${detailItem("推荐话术", esc(analysis.sales_script || "未提及"), true)}
+      ${detailItem("原始识别文本", esc(analysis.raw_text || "未提及"), true)}
+    </section>` : `<p class="empty">资料还在处理中，请稍后刷新。</p>`;
+    openDetailAtTop();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function submitCustomerEdit(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  data.intent_score = Number(data.intent_score || 0);
+  try {
+    await api(`/api/customers/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+    showNotice("客户资料已保存。", "ok");
+    await showCustomerDetail(id);
+    if (state.view === "customers") await loadCustomers();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function deleteCustomer(id) {
+  if (!confirm("确定删除这个客户吗？关联资料、分析和跟进记录也会删除。")) return;
+  try {
+    await api(`/api/customers/${id}`, { method: "DELETE" });
+    $("#detailDialog").close();
+    showNotice("客户已删除。", "ok");
+    await views[state.view].load();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function submitQuotation(event, customerId) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  try {
+    await api(`/api/quotations/${customerId}`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: data.title,
+        items: [{ name: data.item_name, qty: Number(data.qty), unit_price: Number(data.unit_price) }],
+      }),
+    });
+    showNotice("报价单已生成。", "ok");
+    await showCustomerDetail(customerId);
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function updateQuotationStatus(id, status, customerId) {
+  try {
+    await api(`/api/quotations/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+    showNotice("报价状态已更新。", "ok");
+    await showCustomerDetail(customerId);
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function markFollowup(id, status) {
+  try {
+    await api(`/api/customers/followups/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+    showNotice("跟进状态已更新。", "ok");
+    await views[state.view].load();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function reanalyzeUpload(id) {
+  try {
+    await api(`/api/uploads/${id}/reanalyze`, { method: "POST" });
+    showNotice("已提交重新分析。", "ok");
+    await loadUploads();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function deleteScript(id) {
+  if (!confirm("确定删除这条话术吗？")) return;
+  try {
+    await api(`/api/scripts/${id}`, { method: "DELETE" });
+    showNotice("话术已删除。", "ok");
+    await loadScripts();
+  } catch (error) {
+    showNotice(readableError(error));
+  }
+}
+
+async function testAi() {
+  if (!state.token) return openLogin();
   try {
     const status = await api("/api/ai/deepseek/status");
-    if (!status.configured) {
-      showNotice("DeepSeek Key 还没有配置。请先在后端 .env 文件填写 DEEPSEEK_API_KEY，然后重启后端。");
-      return;
-    }
+    if (!status.configured) return showNotice("DeepSeek Key 未配置，请先检查后端 .env。");
     const result = await api("/api/ai/deepseek/test", { method: "POST" });
     showNotice(`DeepSeek 连接成功：${result.intent_level} · ${result.intent_score}`, "ok");
   } catch (error) {
@@ -394,224 +729,99 @@ async function testDeepSeek() {
   }
 }
 
-async function showUploadDetail(id) {
-  if (String(id).startsWith("demo")) return openLogin();
-  if (!state.token) return openLogin();
-  try {
-    const upload = await api(`/api/uploads/${id}`);
-    const analysis = upload.analysis;
-    clearPreviewObjectUrls();
-    let originalPreview = "";
-    if (upload.file_type === "image") {
-      try {
-        const imageUrl = rememberPreviewUrl(await apiBlob(`/api/uploads/${id}/file`));
-        originalPreview = `<section class="original-image-panel full">
-          <span>原始图片</span>
-          <a href="${esc(imageUrl)}" target="_blank" rel="noopener" title="点击查看原图">
-            <img class="original-image" src="${esc(imageUrl)}" alt="${esc(upload.file_name)}" />
-          </a>
-        </section>`;
-      } catch (error) {
-        originalPreview = detailItem("原始图片", `加载失败：${esc(readableError(error))}`, true);
-      }
-    } else if (upload.file_type === "audio") {
-      try {
-        const audioUrl = rememberPreviewUrl(await apiBlob(`/api/uploads/${id}/file`));
-        originalPreview = `<section class="original-audio-panel full">
-          <span>原始录音</span>
-          <audio class="original-audio" controls preload="metadata" src="${esc(audioUrl)}"></audio>
-          <a class="media-open-link" href="${esc(audioUrl)}" target="_blank" rel="noopener">打开原始录音</a>
-        </section>`;
-      } catch (error) {
-        originalPreview = detailItem("原始录音", `加载失败：${esc(readableError(error))}`, true);
-      }
+async function hydrateRecordPreviews() {
+  const images = $$("[data-image]");
+  const audios = $$("[data-audio]");
+  await Promise.all(images.map(async (box) => {
+    try {
+      const url = rememberPreviewUrl(await apiBlob(`/api/uploads/${box.dataset.image}/file`));
+      box.innerHTML = `<img src="${esc(url)}" alt="原始图片" />`;
+    } catch (error) {
+      box.textContent = `原图加载失败：${readableError(error)}`;
     }
-    $("#detailTitle").textContent = upload.file_name;
-    $("#detailContent").innerHTML = analysis
-      ? `<div class="detail-grid">
-          ${originalPreview}
-          ${detailItem("处理状态", statusBadge(upload.status))}
-          ${detailItem("文件类型", fileTypeText(upload.file_type))}
-          ${detailItem("内容摘要", esc(analysis.summary || "未提及"), true)}
-          ${detailItem("购买意向", intentBadge(analysis.intent_level, analysis.intent_score))}
-          ${detailItem("判断理由", esc(analysis.intent_reason || "未提及"), true)}
-          ${detailItem("关键证据", esc(analysis.evidence || "未提及"), true)}
-          ${detailItem("客户需求", esc(analysis.customer_needs || "未提及"), true)}
-          ${detailItem("推荐话术", esc(analysis.sales_script || "未提及"), true)}
-          ${detailItem("原始识别文字", esc(analysis.raw_text || "未提及"), true)}
-        </div>`
-      : `<p class="empty">该记录还在处理中，请稍后刷新。</p>`;
-    if (!$("#detailDialog").open) $("#detailDialog").showModal();
-  } catch (error) {
-    showNotice(readableError(error));
-  }
+  }));
+  await Promise.all(audios.map(async (box) => {
+    try {
+      const url = rememberPreviewUrl(await apiBlob(`/api/uploads/${box.dataset.audio}/file`));
+      box.innerHTML = `<audio controls src="${esc(url)}"></audio>`;
+    } catch (error) {
+      box.textContent = `录音加载失败：${readableError(error)}`;
+    }
+  }));
 }
 
-function renderLeadStack(container, items) {
-  container.innerHTML = items.length
-    ? items.map((item) => `
-      <article class="lead-card">
-        <div class="lead-top">
-          <div>
-            <strong>${esc(item.name || item.phone || "未命名客户")}</strong>
-            <p>${esc(item.demand_summary || item.followup_content || "未提及")}</p>
-          </div>
-          ${intentBadge(item.intent_level, item.intent_score)}
-        </div>
-        <div class="lead-due">${followupDueText(item.next_followup_at)} · ${esc(firstFollowupLine(item.followup_content))}</div>
-        <div class="lead-actions">
-          <p>${esc(item.next_action || "暂无下一步建议")}</p>
-          <button class="quiet-btn" type="button" onclick="showCustomerDetail('${item.id}')">跟进</button>
-        </div>
-      </article>`).join("")
-    : `<p class="empty">暂无待跟进客户。新截图或录音分析完成后会自动出现在这里。</p>`;
+function openSalesCustomers(userId) {
+  $("#customerOwner").value = String(userId);
+  $("#customerIntent").value = "";
+  $("#customerKeyword").value = "";
+  switchView("customers");
 }
 
-function firstFollowupLine(content = "") {
-  const line = String(content || "").split("\n").find(Boolean);
-  return line ? line.replace(/^跟进优先级：/, "") : "等待AI生成跟进建议";
+function openDetailAtTop() {
+  const dialog = $("#detailDialog");
+  const content = $("#detailContent");
+  [dialog, content].forEach((el) => {
+    if (el) {
+      el.scrollTop = 0;
+      el.scrollLeft = 0;
+    }
+  });
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => {
+    dialog.scrollTop = 0;
+    content.scrollTop = 0;
+  });
 }
 
-function followupDueText(value) {
-  if (!value) return "未设置提醒";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "未设置提醒";
-  const diffMs = date.getTime() - Date.now();
-  const absHours = Math.abs(diffMs) / 36e5;
-  if (diffMs < 0) return absHours < 24 ? "已到跟进时间" : `已逾期${Math.ceil(absHours / 24)}天`;
-  if (absHours < 1) return "1小时内跟进";
-  if (absHours < 24) return `${Math.ceil(absHours)}小时内跟进`;
-  return `${Math.ceil(absHours / 24)}天后跟进`;
+function clearExactDate(scope, reload) {
+  $(`#${scope}DateExact`).value = "";
+  updateDateLabels();
+  reload();
 }
 
-function renderTimeline(container, items) {
-  container.innerHTML = items.length
-    ? items.map((item) => `
-      <article class="timeline-row">
-        <div><strong>${esc(item.file_name)}</strong><p>${fileTypeText(item.file_type)} · ${formatDate(item.created_at)}</p></div>
-        ${statusBadge(item.status)}
-      </article>`).join("")
-    : `<p class="empty">暂无上传记录。</p>`;
+function clearQuickDate(scope, reload) {
+  $(`#${scope}DateQuick`).value = "";
+  updateDateLabels();
+  reload();
 }
 
-function renderCustomerRow(customer) {
-  return `<tr>
-    <td><span class="cell-main">${esc(customer.name || "未命名客户")}</span><span class="cell-sub">ID ${customer.id}</span></td>
-    <td>${phoneLink(customer.phone)}</td>
-    <td>${intentBadge(customer.intent_level, customer.intent_score)}</td>
-    <td><span class="cell-main">${esc(customer.demand_summary || "未提及")}</span></td>
-    <td><span class="cell-main">${esc(customer.next_action || "未提及")}</span></td>
-    <td><div class="row-actions"><button class="quiet-btn" onclick="showCustomerDetail('${customer.id}')">查看</button></div></td>
-  </tr>`;
+function updateDateLabels() {
+  ["customer", "upload"].forEach((scope) => {
+    const input = $(`#${scope}DateExact`);
+    const label = $(`#${scope}DateLabel`);
+    if (!input || !label) return;
+    label.textContent = input.value ? friendlyDate(input.value) : "选择日期";
+  });
 }
 
-function renderUploadRow(upload) {
-  return `<tr>
-    <td><span class="cell-main">${esc(upload.file_name)}</span><span class="cell-sub">ID ${upload.id}</span></td>
-    <td>${fileTypeText(upload.file_type)}</td>
-    <td>${statusBadge(upload.status)}</td>
-    <td>${upload.customer_id ? `客户 ${upload.customer_id}` : "未归档"}</td>
-    <td>${formatDate(upload.created_at)}</td>
-    <td><div class="row-actions"><button class="quiet-btn" onclick="showUploadDetail('${upload.id}')">分析</button><button class="quiet-btn" onclick="reanalyzeUpload('${upload.id}')">重跑</button></div></td>
-  </tr>`;
+function selectedDateKeyword(scope) {
+  const exact = $(`#${scope}DateExact`)?.value;
+  if (exact) return compactDate(exact);
+  const quick = $(`#${scope}DateQuick`)?.value;
+  if (quick === "today") return compactDate(offsetDate(0));
+  if (quick === "yesterday") return compactDate(offsetDate(-1));
+  if (quick === "7days") return Array.from({ length: 7 }, (_, index) => compactDate(offsetDate(-index))).join(",");
+  return "";
 }
 
-function renderLeadRow(customer) {
-  return `<tr>
-    <td><span class="cell-main">${esc(customer.name || "未命名客户")}</span></td>
-    <td>${phoneLink(customer.phone)}</td>
-    <td>${intentBadge(customer.intent_level, customer.intent_score)}</td>
-    <td><span class="cell-main">${esc(customer.demand_summary || "未提及")}</span></td>
-    <td><span class="cell-main">${esc(customer.next_action || "未提及")}</span></td>
-    <td><div class="row-actions"><button class="quiet-btn" onclick="showCustomerDetail('${customer.id}')">跟进</button></div></td>
-  </tr>`;
+function joinKeywords(text, dateKeyword) {
+  if (!dateKeyword) return text;
+  return text ? `${text} ${dateKeyword}` : dateKeyword;
 }
 
-function renderUserRow(user) {
-  return `<article class="user-row">
-    <div><strong>${esc(user.name)}</strong><p>${esc(user.username)} · ${esc(user.phone || "未填手机号")}</p></div>
-    <span class="badge ${user.status === "active" ? "ok" : "none"}">${user.status === "active" ? "启用" : "停用"}</span>
-  </article>`;
+function offsetDate(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date;
 }
 
-function detailItem(label, value, full = false) {
-  return `<section class="detail-item ${full ? "full" : ""}"><span>${label}</span><p>${value}</p></section>`;
+function compactDate(value) {
+  const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function emptyTableRow(colspan, text) {
-  return `<tr><td colspan="${colspan}" class="empty">${text}</td></tr>`;
-}
-
-function intentBadge(level, score = 0) {
-  const cls = level === "高意向" ? "high" : level === "中意向" ? "mid" : level === "低意向" ? "low" : level === "暂无意向" ? "none" : "unknown";
-  return `<span class="badge ${cls}">${esc(level || "无法判断")} · ${score ?? 0}</span>`;
-}
-
-function statusBadge(status) {
-  const cls = status === "completed" ? "ok" : status === "failed" ? "none" : "wait";
-  return `<span class="badge ${cls}">${statusText(status)}</span>`;
-}
-
-function statusText(status) {
-  return { pending: "待处理", processing: "处理中", completed: "已完成", failed: "失败" }[status] || status || "未知";
-}
-
-function fileTypeText(type) {
-  return { image: "图片", audio: "录音", document: "文档", unknown: "其他" }[type] || type || "其他";
-}
-
-function phoneLink(phone) {
-  if (!phone) return "未提及";
-  const dialNumber = normalizeDialNumber(phone);
-  if (!dialNumber) return esc(phone);
-  return `<span class="phone-actions">
-    <a class="call-link" href="tel:${esc(dialNumber)}" onclick="showDialHint('${esc(dialNumber)}')">${esc(phone)}</a>
-    <a class="dial-button" href="tel:${esc(dialNumber)}" onclick="showDialHint('${esc(dialNumber)}')">一键拨号</a>
-  </span>`;
-}
-
-function normalizeDialNumber(phone) {
-  const value = String(phone || "").trim();
-  const prefix = value.startsWith("+") ? "+" : "";
-  const body = value.replace(/[^0-9*#]/g, "");
-  return body ? `${prefix}${body}` : "";
-}
-
-function showDialHint(phone) {
-  showNotice(`正在调起系统拨号：${phone}`, "ok");
-}
-
-function formatDate(value) {
-  if (!value) return "";
-  return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function showNotice(message, type = "error") {
-  const box = $("#alertBox");
-  box.hidden = false;
-  box.textContent = message;
-  box.style.color = type === "ok" ? "var(--green)" : "var(--red)";
-  box.style.background = type === "ok" ? "#eefbf4" : "#fff6f4";
-  box.style.borderColor = type === "ok" ? "#ccebd8" : "#ffd6cf";
-}
-
-function hideNotice() {
-  $("#alertBox").hidden = true;
-}
-
-function showLoginError(message) {
-  $("#loginError").textContent = message;
-  $("#loginError").hidden = false;
-}
-
-function hideLoginError() {
-  $("#loginError").hidden = true;
-}
-
-function readableError(error) {
-  const message = error.message || String(error);
-  if (message.includes("Failed to fetch")) return "连接不到后端。请确认后端已经启动，并且地址是 http://127.0.0.1:8000。";
-  return message;
+function friendlyDate(value) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
 async function api(path, options = {}) {
@@ -625,35 +835,50 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     const message = typeof data === "object" && data?.detail ? data.detail : `请求失败：${response.status}`;
-    throw new Error(message);
+    throw new Error(Array.isArray(message) ? message.map((item) => item.msg).join("；") : message);
   }
   return data;
 }
 
 async function apiBlob(path) {
-  const headers = {};
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const headers = state.token ? { Authorization: `Bearer ${state.token}` } : {};
   const response = await fetch(`${state.apiBase}${path}`, { headers });
-  if (!response.ok) {
-    let message = `请求失败：${response.status}`;
-    try {
-      const data = await response.json();
-      if (data?.detail) message = data.detail;
-    } catch {}
-    throw new Error(message);
-  }
+  if (!response.ok) throw new Error(`文件读取失败：${response.status}`);
   return response.blob();
 }
 
 function rememberPreviewUrl(blob) {
   const url = URL.createObjectURL(blob);
-  state.previewObjectUrls.push(url);
+  state.previewUrls.push(url);
   return url;
 }
 
-function clearPreviewObjectUrls() {
-  state.previewObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-  state.previewObjectUrls = [];
+function clearPreviewUrls() {
+  state.previewUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.previewUrls = [];
+}
+
+function showNotice(message, type = "error") {
+  const box = $("#notice");
+  box.textContent = message;
+  box.className = `notice ${type}`;
+  box.hidden = false;
+  clearTimeout(showNotice.timer);
+  showNotice.timer = setTimeout(() => box.hidden = true, 4200);
+}
+
+function readableError(error) {
+  const message = error?.message || String(error);
+  if (message.includes("Failed to fetch")) return "连接不到后端，请确认后端服务已启动。";
+  return message;
+}
+
+function detailItem(label, value, full = false) {
+  return `<section class="detail-item ${full ? "full" : ""}"><span>${label}</span><p>${value}</p></section>`;
+}
+
+function emptyRow(colspan, text) {
+  return `<tr><td class="empty" colspan="${colspan}">${esc(text)}</td></tr>`;
 }
 
 function esc(value) {
@@ -665,262 +890,111 @@ function esc(value) {
     .replace(/'/g, "&#039;");
 }
 
-window.showUploadDetail = showUploadDetail;
-window.reanalyzeUpload = reanalyzeUpload;
-window.showDialHint = showDialHint;
-
-async function reanalyzeUpload(id) {
-  if (String(id).startsWith("demo")) return openLogin();
-  if (!state.token) return openLogin();
-  try {
-    const result = await api(`/api/uploads/${id}/reanalyze`, { method: "POST" });
-    showNotice(`已重新分析，记录编号：${result.id}`, "ok");
-    await loadUploads();
-  } catch (error) {
-    showNotice(readableError(error));
-  }
+function intentBadge(level, score = 0) {
+  const cls = level === "高意向" ? "high" : level === "中意向" ? "mid" : level === "低意向" ? "low" : level === "暂无意向" ? "none" : "unknown";
+  return `<span class="badge ${cls}">${esc(level || "无法判断")} · ${score ?? 0}</span>`;
 }
 
-async function showCustomerDetail(id) {
-  if (String(id).startsWith("demo")) return openLogin();
-  if (!state.token) return openLogin();
-  try {
-    const [customer, records, followups] = await Promise.all([
-      api(`/api/customers/${id}`),
-      api(`/api/customers/${id}/records`),
-      api(`/api/customers/${id}/followups`),
-    ]);
-
-    $("#detailTitle").textContent = customer.name || customer.phone || `客户 ${customer.id}`;
-    $("#detailContent").innerHTML = `
-      <section class="customer-profile">
-        <div class="profile-main">
-          <span class="panel-kicker">客户档案</span>
-          <h2>${esc(customer.name || "未命名客户")}</h2>
-          <p>${phoneLink(customer.phone)} · ${esc(customer.source || "AI上传")}</p>
-        </div>
-        <div class="profile-score">
-          ${intentBadge(customer.intent_level, customer.intent_score)}
-          <span>当前意向</span>
-        </div>
-      </section>
-
-      <section class="detail-grid">
-        ${detailItem("客户需求", esc(customer.demand_summary || "未提及"), true)}
-        ${detailItem("疑问/异议", esc(customer.concerns || "未提及"), true)}
-        ${detailItem("关注产品", esc(customer.product_interest || "未提及"))}
-        ${detailItem("预算", esc(customer.budget || "未提及"))}
-        ${detailItem("购买时间", esc(customer.purchase_time || "未提及"))}
-        ${detailItem("下一步建议", esc(customer.next_action || "未提及"), true)}
-      </section>
-
-      <section class="detail-section">
-        <div class="section-title">
-          <h3>历史资料和 AI 判断</h3>
-          <span>${records.length} 条</span>
-        </div>
-        <div class="record-list">${renderRecordCards(records)}</div>
-      </section>
-
-      <section class="detail-section">
-        <div class="section-title">
-          <h3>AI自动跟进</h3>
-          <span>${followups.length} 条</span>
-        </div>
-        <form class="followup-form" onsubmit="submitCustomerMaterial(event, '${customer.id}', '${esc(customer.phone || "")}', '${esc(customer.name || "")}')">
-          <label>
-            <span>上传微信图片/聊天截图/客户资料</span>
-            <input name="file" type="file" accept="image/*,.jpg,.jpeg,.png,.webp,.bmp,.txt,.md,.csv,.doc,.docx,.pdf" required />
-          </label>
-          <div class="followup-row">
-            <label>
-              <span>资料说明</span>
-              <input name="note" placeholder="例如：微信报价截图、客户需求截图、合同照片" />
-            </label>
-            <button class="primary-btn" type="submit">上传资料并生成跟进</button>
-          </div>
-        </form>
-        <form class="followup-form" onsubmit="submitCallRecording(event, '${customer.id}', '${esc(customer.phone || "")}')">
-          <label>
-            <span>上传通话录音</span>
-            <input name="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.opus" required />
-          </label>
-          <div class="followup-row">
-            <label>
-              <span>客户电话</span>
-              <input name="callee_phone" value="${esc(customer.phone || "")}" />
-            </label>
-            <button class="primary-btn" type="submit">上传录音并生成跟进</button>
-          </div>
-        </form>
-        <form class="followup-form muted-form" onsubmit="submitManualNote(event, '${customer.id}')">
-          <textarea name="content" rows="2" placeholder="补充备注：只用于人工补充，不作为主要跟进来源。" required></textarea>
-          <div class="followup-row">
-            <label>
-              <span>提醒时间</span>
-              <input name="next_followup_at" type="datetime-local" />
-            </label>
-            <button class="quiet-btn" type="submit">保存补充备注</button>
-          </div>
-        </form>
-        <div class="followup-list">${renderFollowupCards(followups)}</div>
-      </section>
-    `;
-    await hydrateRecordImagePreviews();
-    if (!$("#detailDialog").open) $("#detailDialog").showModal();
-  } catch (error) {
-    showNotice(readableError(error));
-  }
+function statusBadge(status, label) {
+  const cls = ["completed", "customer_created", "accepted", "sent", "ok"].includes(status) ? "ok"
+    : ["failed", "rejected", "none"].includes(status) ? "none"
+    : ["pending", "processing", "unlinked", "draft", "contacted", "meeting"].includes(status) ? "wait"
+    : "unknown";
+  return `<span class="badge ${cls}">${esc(label || statusText(status))}</span>`;
 }
 
-async function submitManualNote(event, customerId) {
-  event.preventDefault();
-  if (!state.token) return openLogin();
-  const form = event.currentTarget;
-  const content = form.content.value.trim();
-  const nextFollowup = form.next_followup_at.value;
-  if (!content) return;
-
-  try {
-    await api(`/api/customers/${customerId}/followups`, {
-      method: "POST",
-      body: JSON.stringify({
-        content,
-        next_followup_at: nextFollowup ? new Date(nextFollowup).toISOString() : null,
-      }),
-    });
-    showNotice("补充备注已保存。", "ok");
-    await showCustomerDetail(customerId);
-  } catch (error) {
-    showNotice(readableError(error));
-  }
+function statusText(status) {
+  return {
+    pending: "待处理",
+    processing: "处理中",
+    completed: "已完成",
+    failed: "失败",
+    customer_created: "已生成客户",
+    unlinked: "待归档资料",
+    draft: "草稿",
+    sent: "已发送",
+    accepted: "已成交",
+    rejected: "已拒绝",
+    contacted: "已联系",
+    meeting: "已约见",
+    ok: "正常",
+    none: "无",
+  }[status] || status || "未知";
 }
 
-async function submitCallRecording(event, customerId, customerPhone) {
-  event.preventDefault();
-  if (!state.token) return openLogin();
-  const form = event.currentTarget;
-  const file = form.file.files[0];
-  if (!file) return;
-  const data = new FormData();
-  data.append("file", file);
-  data.append("customer_id", customerId);
-  data.append("callee_phone", form.callee_phone.value || customerPhone || "");
-
-  try {
-    const result = await api("/api/call-recordings", {
-      method: "POST",
-      body: data,
-      isForm: true,
-    });
-    showNotice(`通话录音已上传，上传记录编号：${result.upload_record_id}`, "ok");
-    await showCustomerDetail(customerId);
-  } catch (error) {
-    showNotice(readableError(error));
-  }
+function fileTypeText(type) {
+  return { image: "图片", audio: "录音", document: "文档", unknown: "其他" }[type] || type || "其他";
 }
 
-async function submitCustomerMaterial(event, customerId, customerPhone, customerName) {
-  event.preventDefault();
-  if (!state.token) return openLogin();
-  const form = event.currentTarget;
-  const file = form.file.files[0];
-  if (!file) return;
-  const data = new FormData();
-  data.append("file", file);
-  data.append("customer_id", customerId);
-  data.append("customer_phone", customerPhone || "");
-  data.append("customer_name", customerName || "");
-  data.append("note", form.note.value || "");
-
-  try {
-    const result = await api("/api/uploads", {
-      method: "POST",
-      body: data,
-      isForm: true,
-    });
-    showNotice(`客户资料已上传，AI正在分析，上传记录编号：${result.id}`, "ok");
-    await showCustomerDetail(customerId);
-  } catch (error) {
-    showNotice(readableError(error));
-  }
+function sourceTimeText(item) {
+  const match = String(item.file_name || "").match(/(?:Screenshot_|IMG_|VID_)?(20\d{6})[_-](\d{6})/i);
+  if (!match) return "资料时间未知";
+  const [, datePart, timePart] = match;
+  const date = new Date(Number(datePart.slice(0, 4)), Number(datePart.slice(4, 6)) - 1, Number(datePart.slice(6, 8)), Number(timePart.slice(0, 2)), Number(timePart.slice(2, 4)));
+  return `资料 ${formatDate(date)}`;
 }
 
-function renderRecordCards(records) {
-  if (!records.length) return `<p class="empty compact-empty">暂无上传资料。</p>`;
-  return records.map((record) => {
-    const analysis = record.analysis;
-    return `
-      <article class="record-card">
-        <div class="record-head">
-          <div>
-            <strong>${esc(record.file_name)}</strong>
-            <p>${fileTypeText(record.file_type)} · ${formatDate(record.created_at)}</p>
-          </div>
-          ${statusBadge(record.status)}
-        </div>
-        ${record.file_type === "image" ? `<div class="record-image-preview" data-upload-image-id="${record.id}"><span>正在加载原始图片...</span></div>` : ""}
-        ${record.file_type === "audio" ? `<div class="record-audio-preview" data-upload-audio-id="${record.id}"><span>正在加载原始录音...</span></div>` : ""}
-        <div class="record-body">
-          <p><b>摘要：</b>${esc(analysis?.summary || "未提及")}</p>
-          <p><b>判断依据：</b>${esc(analysis?.evidence || "未提及")}</p>
-          <p><b>推荐话术：</b>${esc(analysis?.sales_script || "未提及")}</p>
-        </div>
-        <div class="record-actions">
-          <button class="quiet-btn" type="button" onclick="showUploadDetail('${record.id}')">查看分析</button>
-          <button class="quiet-btn" type="button" onclick="reanalyzeUpload('${record.id}')">重新分析</button>
-        </div>
-      </article>
-    `;
-  }).join("");
+function formatDate(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-async function hydrateRecordImagePreviews() {
-  const imageContainers = Array.from(document.querySelectorAll("[data-upload-image-id]"));
-  const audioContainers = Array.from(document.querySelectorAll("[data-upload-audio-id]"));
-  await Promise.all(imageContainers.map(async (container) => {
-    try {
-      const blob = await apiBlob(`/api/uploads/${container.dataset.uploadImageId}/file`);
-      const imageUrl = rememberPreviewUrl(blob);
-      container.innerHTML = `<a href="${esc(imageUrl)}" target="_blank" rel="noopener" title="点击查看原图"><img src="${esc(imageUrl)}" alt="原始上传图片" /></a>`;
-    } catch (error) {
-      container.innerHTML = `<span>原图加载失败：${esc(readableError(error))}</span>`;
-    }
-  }));
-  await Promise.all(audioContainers.map(async (container) => {
-    try {
-      const blob = await apiBlob(`/api/uploads/${container.dataset.uploadAudioId}/file`);
-      const audioUrl = rememberPreviewUrl(blob);
-      container.innerHTML = `<audio controls preload="metadata" src="${esc(audioUrl)}"></audio><a class="media-open-link" href="${esc(audioUrl)}" target="_blank" rel="noopener">打开原始录音</a>`;
-    } catch (error) {
-      container.innerHTML = `<span>录音加载失败：${esc(readableError(error))}</span>`;
-    }
-  }));
+function firstLine(value = "") {
+  return String(value).split("\n").find(Boolean) || "";
 }
 
-function renderFollowupCards(followups) {
-  if (!followups.length) return `<p class="empty compact-empty">暂无AI跟进记录。</p>`;
-  return followups.map((item) => `
-    <article class="followup-card ${item.source === "manual_note" ? "manual" : "auto"}">
-      <div>
-        <strong>${followupSourceText(item.source)} · ${formatDate(item.created_at)}</strong>
-        <p>${esc(item.content)}</p>
-      </div>
-      <span>${item.next_followup_at ? `下次：${formatDate(item.next_followup_at)}` : "未设置下次时间"}</span>
-    </article>
-  `).join("");
+function phoneCell(phone) {
+  if (!phone) return "未提及";
+  const dial = String(phone).replace(/[^\d+*#]/g, "");
+  return `<span class="cell-main">${esc(phone)}</span><a class="cell-sub" href="tel:${esc(dial)}">一键拨号</a>`;
+}
+
+function wechatCell(item) {
+  if (!item.wechat_id && !item.wechat_nickname) return "未提及";
+  return `<span class="cell-main">${esc(item.wechat_nickname || "未提及")}</span><span class="cell-sub">${esc(item.wechat_id || "微信号未提及")}</span>`;
+}
+
+function ownerCell(item) {
+  if (!item.owner_name && !item.owner_username) return "未分配";
+  return `<span class="cell-main">${esc(item.owner_name || item.owner_username)}</span><span class="cell-sub">${esc(item.owner_username || "")}</span>`;
+}
+
+function uploaderCell(item) {
+  if (!item.uploader_name && !item.uploader_username) return "未记录";
+  return `<span class="cell-main">${esc(item.uploader_name || item.uploader_username)}</span><span class="cell-sub">${esc(item.uploader_username || "")}</span>`;
+}
+
+function salesOptions() {
+  return `<option value="">选择销售</option>${state.salesUsers.map((user) => `<option value="${user.id}">${esc(user.name)}（${esc(user.username)}）</option>`).join("")}`;
+}
+
+function intentOptions(selected) {
+  return ["高意向", "中意向", "低意向", "暂无意向", "无法判断"].map((item) => `<option ${item === selected ? "selected" : ""}>${item}</option>`).join("");
+}
+
+function stageText(stage) {
+  return { lead: "新线索", followup: "跟进中", negotiation: "谈判中", closed_won: "已成交", closed_lost: "已流失" }[stage] || "新线索";
+}
+
+function stageOptions(selected) {
+  return [["lead", "新线索"], ["followup", "跟进中"], ["negotiation", "谈判中"], ["closed_won", "已成交"], ["closed_lost", "已流失"]]
+    .map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function followupSourceText(source) {
-  return {
-    call_auto: "通话自动记录",
-    material_auto: "资料自动记录",
-    manual_note: "人工补充备注",
-    manual: "人工补充备注",
-  }[source] || "跟进记录";
+  return { call_auto: "通话自动跟进", material_auto: "资料自动跟进", manual_note: "人工备注", manual: "人工备注" }[source] || "跟进记录";
 }
 
 window.showCustomerDetail = showCustomerDetail;
-window.submitManualNote = submitManualNote;
-window.submitCallRecording = submitCallRecording;
-window.submitCustomerMaterial = submitCustomerMaterial;
+window.showUploadDetail = showUploadDetail;
+window.reanalyzeUpload = reanalyzeUpload;
+window.assignCustomer = assignCustomer;
+window.openSalesCustomers = openSalesCustomers;
+window.submitCustomerEdit = submitCustomerEdit;
+window.deleteCustomer = deleteCustomer;
+window.submitQuotation = submitQuotation;
+window.updateQuotationStatus = updateQuotationStatus;
+window.markFollowup = markFollowup;
+window.deleteScript = deleteScript;

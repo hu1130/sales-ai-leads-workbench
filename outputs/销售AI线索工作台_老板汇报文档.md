@@ -323,13 +323,13 @@ work/Automatic-Phone-Recording-main/data/inbox/wechat
 前端访问地址：
 
 ```text
-http://127.0.0.1:8080/index.html
+http://127.0.0.1:5173/
 ```
 
 后端接口地址：
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8100
 ```
 
 ---
@@ -663,4 +663,3 @@ https://github.com/hu1130/sales-ai-leads-workbench
 5. 云端部署准备。
 
 这样项目会从“技术链路跑通”升级为“老板和销售每天愿意打开使用”的产品。
-

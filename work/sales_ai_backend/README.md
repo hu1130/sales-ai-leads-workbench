@@ -10,13 +10,13 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8100
 ```
 
 启动后访问：
 
-- API 文档：http://127.0.0.1:8000/docs
-- 健康检查：http://127.0.0.1:8000/health
+- API 文档：http://127.0.0.1:8100/docs
+- 健康检查：http://127.0.0.1:8100/health
 
 ## 默认账号
 

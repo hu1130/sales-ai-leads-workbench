@@ -1,5 +1,6 @@
 services:
   backend:
+    container_name: sales-ai-backend
     build:
       context: ../work/sales_ai_backend
       dockerfile: Dockerfile
@@ -9,17 +10,29 @@ services:
     volumes:
       - sales_ai_data:/app/data
       - sales_ai_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).read()"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
 
   web:
+    container_name: sales-ai-web
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "80:80"
     volumes:
       - ../outputs/sales_ai_frontend:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
 
 volumes:
   sales_ai_data:
