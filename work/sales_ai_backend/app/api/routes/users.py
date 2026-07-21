@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import assert_user_same_tenant, require_admin, tenant_id_for
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.user import User
@@ -17,10 +17,10 @@ def list_users(
     keyword: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[User]:
-    query = db.query(User)
+    query = db.query(User).filter(User.tenant_id == tenant_id_for(current_user))
     if role:
         query = query.filter(User.role == role)
     if status:
@@ -34,15 +34,16 @@ def list_users(
 @router.post("", response_model=UserOut)
 def create_user(
     payload: UserCreate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> User:
     existing = db.query(User).filter(User.username == payload.username).first()
     if existing:
-        raise HTTPException(status_code=400, detail="账号已存在")
+        raise HTTPException(status_code=400, detail="username already exists")
     if payload.role not in {"sales", "admin"}:
-        raise HTTPException(status_code=400, detail="角色只能是 sales 或 admin")
+        raise HTTPException(status_code=400, detail="role must be sales or admin")
     user = User(
+        tenant_id=tenant_id_for(current_user),
         username=payload.username,
         password_hash=hash_password(payload.password),
         name=payload.name,
@@ -60,16 +61,14 @@ def create_user(
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> User:
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+    user = assert_user_same_tenant(db.get(User, user_id), current_user, require_active=False)
     if payload.role is not None and payload.role not in {"sales", "admin"}:
-        raise HTTPException(status_code=400, detail="角色只能是 sales 或 admin")
+        raise HTTPException(status_code=400, detail="role must be sales or admin")
     if payload.status is not None and payload.status not in {"active", "disabled"}:
-        raise HTTPException(status_code=400, detail="状态只能是 active 或 disabled")
+        raise HTTPException(status_code=400, detail="status must be active or disabled")
 
     for field in ("name", "phone", "role", "status"):
         value = getattr(payload, field)
@@ -80,4 +79,3 @@ def update_user(
     db.commit()
     db.refresh(user)
     return user
-

@@ -9,7 +9,7 @@
         <el-option label="异议处理" value="objection" />
       </el-select>
       <el-button type="primary" @click="load">查询</el-button>
-      <el-button @click="openCreate">新增话术</el-button>
+      <el-button v-if="isAdmin" @click="openCreate">新增话术</el-button>
     </div>
 
     <el-row v-loading="loading" :gutter="16">
@@ -22,7 +22,7 @@
             </div>
           </template>
           <p>{{ item.content || "暂无内容" }}</p>
-          <el-button type="danger" plain size="small" @click="remove(item)">删除</el-button>
+          <el-button v-if="isAdmin" type="danger" plain size="small" @click="remove(item)">删除</el-button>
         </el-card>
       </el-col>
     </el-row>
@@ -51,9 +51,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import http from "../api/http";
+import { useAuthStore } from "../stores/auth";
 
 const loading = ref(false);
 const items = ref([]);
@@ -61,6 +62,8 @@ const keyword = ref("");
 const category = ref("");
 const visible = ref(false);
 const form = reactive({ title: "", category: "general", content: "" });
+const auth = useAuthStore();
+const isAdmin = computed(() => auth.isAdmin);
 
 function categoryText(value) {
   return ({
@@ -85,11 +88,13 @@ async function load() {
 }
 
 function openCreate() {
+  if (!isAdmin.value) return ElMessage.warning("只有管理员可以维护话术");
   Object.assign(form, { title: "", category: "general", content: "" });
   visible.value = true;
 }
 
 async function save() {
+  if (!isAdmin.value) return ElMessage.warning("只有管理员可以维护话术");
   await http.post("/api/scripts", form);
   ElMessage.success("话术已保存");
   visible.value = false;
@@ -97,6 +102,7 @@ async function save() {
 }
 
 async function remove(item) {
+  if (!isAdmin.value) return ElMessage.warning("只有管理员可以删除话术");
   await ElMessageBox.confirm(`确定删除「${item.title || item.id}」吗？`, "删除话术", { type: "warning" });
   await http.delete(`/api/scripts/${item.id}`);
   ElMessage.success("已删除");

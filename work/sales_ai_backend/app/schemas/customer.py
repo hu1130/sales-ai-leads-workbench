@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CustomerBase(BaseModel):
@@ -61,3 +61,36 @@ class CustomerListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class CustomerDuplicateGroup(BaseModel):
+    reason: str
+    match_value: str
+    customers: list[CustomerOut]
+
+
+class CustomerDuplicateResponse(BaseModel):
+    items: list[CustomerDuplicateGroup]
+    total: int
+
+
+class CustomerMergeRequest(BaseModel):
+    source_customer_id: int
+
+
+class CustomerRandomAssignRequest(BaseModel):
+    sales_user_ids: list[int] | None = None
+    limit: int | None = Field(default=None, ge=1, le=1000)
+
+
+class CustomerRandomAssignItem(BaseModel):
+    sales_id: int
+    sales_name: str
+    assigned_count: int
+
+
+class CustomerRandomAssignResponse(BaseModel):
+    assigned_count: int
+    sales_count: int
+    remaining_unassigned: int
+    items: list[CustomerRandomAssignItem]

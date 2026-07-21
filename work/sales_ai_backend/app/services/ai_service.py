@@ -9,12 +9,15 @@ from xml.etree import ElementTree
 import logging
 import subprocess
 import tempfile
+import time
+from urllib.parse import urlencode
 
 import httpx
 
 from app.core.config import get_settings
 from app.models.analysis import AIAnalysisResult
 from app.models.upload import UploadRecord
+from app.services.storage_service import is_oss_path, local_file_for_read, presigned_url
 
 
 UNKNOWN = "未提及"
@@ -128,7 +131,10 @@ class AIService:
         }
 
     def _extract_text(self, upload: UploadRecord) -> str:
-        file_path = Path(upload.file_path)
+        with local_file_for_read(upload.file_path) as file_path:
+            return self._extract_text_from_local(upload, file_path)
+
+    def _extract_text_from_local(self, upload: UploadRecord, file_path: Path) -> str:
         suffix = file_path.suffix.lower()
 
         if upload.file_type == "document":
@@ -141,7 +147,7 @@ class AIService:
             return "文档已上传，但该文档格式暂未接入文本解析。"
 
         if upload.file_type == "audio":
-            return self._extract_audio_text(file_path)
+            return self._extract_audio_text(upload, file_path)
 
         if upload.file_type == "image":
             return self._extract_image_text(file_path)
@@ -186,7 +192,7 @@ class AIService:
     def _extract_image_text(self, file_path: Path) -> str:
         settings = get_settings()
         if not settings.dashscope_api_key:
-            return "图片已上传，但 DASHSCOPE_API_KEY 未配置。当前无法读取图片内容。"
+            return "图片已上传，但本次分析时图片 OCR 服务不可用，未能读取图片内容。请确认 OCR 配置后重新分析。"
         try:
             return self._ocr_image_with_dashscope(file_path)
         except Exception as exc:
@@ -235,7 +241,7 @@ class AIService:
             return "图片识别完成，但没有读取到文字。"
         return text
 
-    def _extract_audio_text(self, file_path: Path) -> str:
+    def _extract_audio_text(self, upload: UploadRecord, file_path: Path) -> str:
         settings = get_settings()
         if settings.asr_provider == "local_docker":
             try:
@@ -244,13 +250,102 @@ class AIService:
                 logger.exception("Local Docker FunASR transcription failed")
                 return f"录音识别失败：{exc}"
         if not settings.dashscope_api_key and not settings.asr_api_key:
-            return "录音已上传，但语音识别 Key 未配置。当前无法读取录音内容。"
-        if not settings.asr_audio_base_url:
+            return "录音已上传，但本次分析时语音识别服务不可用，未能读取录音内容。请确认 ASR 配置后重新分析。"
+        if not settings.asr_audio_base_url and not is_oss_path(upload.file_path):
             return (
                 "录音已上传，但当前语音识别还缺少可访问的音频地址配置。"
                 "本地录音需要先上传到可访问地址或 OSS 后再调用录音文件识别。"
             )
-        return f"录音已上传，等待语音识别接入音频地址：{file_path.name}"
+        try:
+            return self._transcribe_audio_with_dashscope(upload)
+        except Exception as exc:
+            logger.exception("DashScope ASR transcription failed")
+            return f"录音识别失败：{exc}"
+
+    def _public_audio_url(self, upload: UploadRecord) -> str:
+        settings = get_settings()
+        if is_oss_path(upload.file_path):
+            return presigned_url(upload.file_path, filename=upload.file_name, inline=True)
+        if not settings.asr_audio_base_url:
+            raise RuntimeError("ASR_AUDIO_BASE_URL 未配置")
+        url = f"{settings.asr_audio_base_url.rstrip('/')}/{upload.id}/file"
+        if settings.public_file_token:
+            url = f"{url}?{urlencode({'token': settings.public_file_token})}"
+        return url
+
+    def _transcribe_audio_with_dashscope(self, upload: UploadRecord) -> str:
+        settings = get_settings()
+        api_key = settings.asr_api_key or settings.dashscope_api_key
+        if not api_key:
+            raise RuntimeError("ASR_API_KEY/DASHSCOPE_API_KEY 未配置")
+
+        task_response = httpx.post(
+            "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-DashScope-Async": "enable",
+            },
+            json={
+                "model": settings.dashscope_asr_model,
+                "input": {"file_urls": [self._public_audio_url(upload)]},
+            },
+            timeout=30,
+        )
+        task_response.raise_for_status()
+        task_data = task_response.json()
+        task_id = (task_data.get("output") or {}).get("task_id")
+        if not task_id:
+            raise RuntimeError(f"DashScope ASR 未返回 task_id: {task_data}")
+
+        deadline = time.monotonic() + settings.asr_poll_timeout
+        last_data: dict | None = None
+        while time.monotonic() < deadline:
+            status_response = httpx.get(
+                f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            status_response.raise_for_status()
+            last_data = status_response.json()
+            output = last_data.get("output") or {}
+            task_status = output.get("task_status")
+            if task_status in {"SUCCEEDED", "SUCCESS"}:
+                transcript = self._extract_dashscope_transcript(output)
+                if transcript:
+                    return transcript
+                raise RuntimeError(f"DashScope ASR 完成但未返回转写文本: {last_data}")
+            if task_status in {"FAILED", "CANCELED", "UNKNOWN"}:
+                raise RuntimeError(output.get("message") or output.get("code") or str(last_data))
+            time.sleep(settings.asr_poll_interval)
+
+        raise RuntimeError(f"DashScope ASR 等待超时: {last_data}")
+
+    def _extract_dashscope_transcript(self, output: dict) -> str:
+        pieces: list[str] = []
+        self._collect_text_fields(output, pieces)
+        for result in output.get("results") or []:
+            transcription_url = result.get("transcription_url") if isinstance(result, dict) else None
+            if not transcription_url:
+                continue
+            try:
+                response = httpx.get(transcription_url, timeout=60)
+                response.raise_for_status()
+                self._collect_text_fields(response.json(), pieces)
+            except Exception as exc:
+                logger.warning("Failed to fetch DashScope transcription_url: %s", exc)
+        return self._clean_text("\n".join(dict.fromkeys(piece for piece in pieces if piece.strip())))
+
+    def _collect_text_fields(self, value, pieces: list[str]) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"text", "transcript", "transcription", "sentence"} and isinstance(item, str):
+                    pieces.append(item)
+                else:
+                    self._collect_text_fields(item, pieces)
+        elif isinstance(value, list):
+            for item in value:
+                self._collect_text_fields(item, pieces)
 
     def _transcribe_audio_with_docker(self, file_path: Path) -> str:
         settings = get_settings()
@@ -304,7 +399,7 @@ class AIService:
     def _has_meaningful_text(self, raw_text: str) -> bool:
         blocked = (
             "尚未接入", "无法读取", "暂未接入", "暂不支持", "读取失败", "编码无法识别",
-            "识别失败", "未配置", "缺少可访问", "等待语音识别",
+            "识别失败", "未配置", "未能读取", "服务不可用", "缺少可访问", "等待语音识别",
         )
         return bool(raw_text and len(raw_text.strip()) >= 20 and not any(word in raw_text for word in blocked))
 
@@ -312,7 +407,7 @@ class AIService:
         if not self._has_meaningful_text(raw_text):
             return AnalysisPayload(
                 raw_text=raw_text,
-                summary="资料已接收，但当前没有可用于判断的真实文本内容。",
+                summary="资料已接收，但本次分析没有拿到可用于判断的真实文本内容。",
                 customer_name=UNKNOWN,
                 customer_wechat_id=UNKNOWN,
                 customer_wechat_nickname=UNKNOWN,
@@ -326,9 +421,9 @@ class AIService:
                 purchase_time=UNKNOWN,
                 intent_level=UNSURE,
                 intent_score=0,
-                intent_reason="当前文件内容无法被读取，或对应识别服务尚未接入。",
+                intent_reason="本次分析时文件内容未能被读取，或对应识别服务不可用。",
                 evidence=UNKNOWN,
-                next_action="请上传 txt/docx 测试文档，或接入图片识别、语音识别后重新分析。",
+                next_action="请确认识别服务可用后重新分析；也可以上传 txt/docx 测试文档验证文本分析。",
                 sales_script="暂无推荐话术。",
                 model_name=f"rule-fallback-{file_type}",
             )
@@ -378,9 +473,10 @@ class AIService:
 
     def _extract_name(self, text: str) -> str | None:
         patterns = [
+            r"联系人[：:\s]*([\u4e00-\u9fa5]{1,4}(?:先生|女士|小姐|老师|主管|总|经理))",
             r"客户姓名[：:\s]*([\u4e00-\u9fa5A-Za-z]{2,12})",
             r"客户[：:\s]*([\u4e00-\u9fa5A-Za-z]{2,12})",
-            r"([\u4e00-\u9fa5]{1,4}(?:先生|女士|总|经理))",
+            r"([\u4e00-\u9fa5]{1,4}(?:先生|女士|小姐|老师|主管|总|经理))",
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
@@ -390,7 +486,7 @@ class AIService:
 
     def _extract_wechat_id(self, text: str) -> str | None:
         patterns = [
-            r"(?:微信号|微信ID|wxid|WeChat ID)[：:\s]*([A-Za-z][A-Za-z0-9_-]{5,31})",
+            r"(?:微信号|微信ID|微信|wxid|WeChat ID)[：:\s]*([A-Za-z][A-Za-z0-9_-]{5,31})",
             r"\b(wxid_[A-Za-z0-9_-]{5,})\b",
         ]
         for pattern in patterns:
@@ -418,10 +514,13 @@ class AIService:
         return not any(marker.lower() in value.lower() for marker in blocked)
 
     def _extract_budget(self, text: str) -> str | None:
-        match = re.search(r"预算[^。\n，,：:]*[：:\s]*([^。\n]+)", text)
+        match = re.search(r"预算[：:\s]+([^。\n，,]+)", text)
         if match:
             return match.group(1).strip()[:80]
-        match = re.search(r"(\d+\s*[万千元][^。\n，,]*到\s*\d+\s*[万千元]|\d+\s*[-~—]\s*\d+\s*[万千元])", text)
+        match = re.search(
+            r"(\d+(?:\.\d+)?\s*(?:万|千|元)?\s*(?:到|-|~|—)\s*\d+(?:\.\d+)?\s*(?:万|千|元)?|\d+(?:\.\d+)?\s*万以内)",
+            text,
+        )
         return match.group(1).strip() if match else None
 
     def _extract_purchase_time(self, text: str) -> str | None:
@@ -435,13 +534,14 @@ class AIService:
         patterns = [
             r"关注产品[：:\s]*([^。\n]+)",
             r"产品[：:\s]*([^。\n]+)",
+            r"想采购([^。，\n]+)",
+            r"咨询([^。，\n]+)",
+            r"了解([^。，\n]+)",
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
                 return match.group(1).strip()[:120]
-        if "AI" in text or "意向分析" in text:
-            return "AI 销售线索分析系统"
         return UNKNOWN
 
     def _score_intent(self, text: str) -> tuple[int, list[str]]:
@@ -449,11 +549,13 @@ class AIService:
             (20, ["报价", "价格", "费用", "多少钱", "优惠"], "客户询问价格/报价"),
             (20, ["合同", "合同模板", "服务内容", "条款"], "客户要求合同或条款"),
             (18, ["付款", "尾款", "一次性付款", "分阶段付款"], "客户询问付款方式"),
-            (18, ["部署", "安装", "上线", "交付"], "客户询问部署/交付时间"),
+            (18, ["部署", "安装", "上线", "交付", "开工", "档期", "拍", "量房"], "客户询问交付/安装/服务时间"),
             (16, ["今天", "明天", "本周", "下周", "尽快", "马上"], "客户提到明确时间"),
             (12, ["老板确认", "给老板", "确认方案", "确定方案"], "客户进入内部确认阶段"),
             (12, ["想了解", "了解一下", "安排演示", "先演示", "演示"], "客户希望了解或演示产品"),
             (12, ["对比", "比较", "价格合适", "再考虑"], "客户正在比较方案"),
+            (14, ["想要", "想采购", "想咨询", "咨询", "了解"], "客户主动咨询产品或服务"),
+            (12, ["电话", "手机号", "微信号", "微信同号"], "客户留下联系方式"),
             (10, ["预算", "8 万", "12 万", "可以接受"], "客户提到预算或可接受范围"),
             (8, ["电话确认", "回访", "跟进"], "客户约定下一次沟通"),
         ]
@@ -464,15 +566,20 @@ class AIService:
                 score += points
                 signals.append(label)
 
-        if any(word in text for word in ["不需要", "不用了", "没预算", "暂不考虑", "拒绝"]):
+        if any(word in text for word in ["不需要", "不用了", "没预算", "暂不考虑", "拒绝", "不是来买", "售后", "投诉", "卡纸"]):
             score -= 45
             signals.append("客户出现拒绝或暂不考虑信号")
 
         return max(0, min(score, 95)), signals
 
     def _intent_level(self, score: int, text: str) -> str:
-        if any(word in text for word in ["不需要", "不用了", "没预算", "暂不考虑", "拒绝"]) and score < 50:
+        if any(word in text for word in ["不需要", "不用了", "没预算", "暂不考虑", "拒绝", "不是来买", "售后", "投诉", "卡纸"]) and score < 50:
             return "暂无意向"
+        comparison_words = ["对比", "比较", "价格合适", "再考虑"]
+        commitment_words = ["合同", "付款", "部署", "上线", "今天", "明天", "下周", "购买", "确定方案", "确认付款"]
+        if any(word in text for word in comparison_words) and not any(word in text for word in commitment_words):
+            if score >= 45:
+                return "中意向"
         if score >= 75:
             return "高意向"
         if score >= 45:
@@ -482,10 +589,12 @@ class AIService:
         return UNSURE
 
     def _infer_needs(self, text: str) -> str:
-        if "意向" in text and ("录音" in text or "图片" in text or "聊天截图" in text):
-            return "希望通过系统自动识别图片、录音或聊天截图，并判断客户购买意向。"
-        if "部署" in text or "上线" in text:
-            return "希望尽快确认方案并完成系统部署。"
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if any(word in line for word in ["需求", "想要", "想采购", "想咨询", "咨询", "了解", "预算", "报价", "方案", "套餐"]):
+                return line[:160]
         return UNKNOWN
 
     def _infer_questions(self, text: str) -> str:
@@ -494,8 +603,8 @@ class AIService:
             questions.append("报价/优惠")
         if any(word in text for word in ["付款", "尾款", "一次性付款"]):
             questions.append("付款方式")
-        if any(word in text for word in ["部署", "安装", "上线", "交付"]):
-            questions.append("部署交付时间")
+        if any(word in text for word in ["部署", "安装", "上线", "交付", "开工", "档期", "量房", "拍"]):
+            questions.append("交付/安装/服务时间")
         if "合同" in text:
             questions.append("合同内容")
         return "、".join(questions) if questions else UNKNOWN
@@ -527,7 +636,7 @@ class AIService:
 
     def _next_action(self, intent_level: str, purchase_time: str | None) -> str:
         if intent_level == "高意向":
-            return "建议当天电话跟进，发送正式报价单和合同模板，并确认付款与部署时间。"
+            return "建议当天电话跟进，发送匹配的方案和正式报价，并确认预算、时间和决策人。"
         if intent_level == "中意向":
             return "建议补充方案、案例和报价说明，约定下一次沟通时间。"
         if intent_level == "低意向":
@@ -538,7 +647,7 @@ class AIService:
         if intent_level == "高意向":
             budget_text = f"我看到您预算大概是{budget}，" if budget else ""
             time_text = f"也提到{purchase_time}，" if purchase_time else ""
-            return f"您好，{budget_text}{time_text}我这边可以先把正式报价和合同模板发您，方便您今天确认。"
+            return f"您好，{budget_text}{time_text}我这边先按您的需求整理方案和报价，方便您确认下一步。"
         return "您好，我这边根据您的需求整理了一份方案，您看我什么时候方便和您确认下一步？"
 
     def _analyze_text_with_deepseek(self, raw_text: str) -> AnalysisPayload:
@@ -609,26 +718,26 @@ summary, customer_name, customer_wechat_id, customer_wechat_nickname, customer_p
 customer_questions, customer_objections, product_interest, budget, purchase_time,
 intent_level, intent_score, intent_reason, evidence, next_action, sales_script
 
-JSON 示例：
+JSON 输出格式：
 {{
-  "summary": "客户询问报价、合同和部署时间，购买意向较强。",
-  "customer_name": "王先生",
-  "customer_wechat_id": "wxid_abc123456",
-  "customer_wechat_nickname": "王总",
-  "customer_phone": "13800000000",
+  "summary": "未提及",
+  "customer_name": "未提及",
+  "customer_wechat_id": "未提及",
+  "customer_wechat_nickname": "未提及",
+  "customer_phone": "未提及",
   "customer_address": "未提及",
-  "customer_needs": "希望购买 AI 销售线索分析系统",
-  "customer_questions": "报价、合同、部署时间",
-  "customer_objections": "需要老板确认",
-  "product_interest": "AI 销售线索分析系统",
+  "customer_needs": "未提及",
+  "customer_questions": "未提及",
+  "customer_objections": "未提及",
+  "product_interest": "未提及",
   "budget": "未提及",
-  "purchase_time": "下周部署",
-  "intent_level": "高意向",
-  "intent_score": 88,
-  "intent_reason": "客户询问报价、合同和部署时间。",
-  "evidence": "客户提到报价、合同、下周部署。",
-  "next_action": "尽快发送正式报价和合同模板。",
-  "sales_script": "您好，我这边先把正式报价和合同模板发您。"
+  "purchase_time": "未提及",
+  "intent_level": "无法判断",
+  "intent_score": 0,
+  "intent_reason": "未提及",
+  "evidence": "未提及",
+  "next_action": "未提及",
+  "sales_script": "未提及"
 }}
 
 客户资料：

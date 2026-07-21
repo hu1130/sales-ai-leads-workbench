@@ -9,6 +9,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY app /app/app
+COPY cloud_recording_watcher.py /app/cloud_recording_watcher.py
 
 RUN mkdir -p /app/data /app/uploads
 

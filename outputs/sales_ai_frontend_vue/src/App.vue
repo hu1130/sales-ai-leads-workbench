@@ -21,6 +21,7 @@
           <span>当前账号</span>
           <strong>{{ auth.user?.name || "未登录" }}</strong>
           <p>{{ roleText }}</p>
+          <p v-if="auth.user?.tenant_name" class="tenant-line">当前公司：{{ auth.user.tenant_name }}</p>
           <el-button v-if="!auth.isLogin" type="primary" class="full-btn" @click="loginVisible = true">登录系统</el-button>
           <el-button v-else class="full-btn" @click="logout">退出登录</el-button>
         </section>
@@ -63,7 +64,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import dayjs from "dayjs";
 import { ElMessage } from "element-plus";
@@ -85,7 +86,21 @@ const roleText = computed(() => {
   if (!auth.user) return "请先登录";
   return auth.user.role === "admin" ? "系统管理员" : "销售账号";
 });
-const visibleRoutes = computed(() => navRoutes.filter((item) => auth.isAdmin || !["assignment", "team", "users"].includes(item.name)));
+const visibleRoutes = computed(() =>
+  navRoutes.filter((item) => {
+    if (item.meta.hidden) return false;
+    if (item.meta.adminOnly && !auth.isAdmin) return false;
+    return auth.isAdmin || !["assignment", "team", "users"].includes(item.name);
+  })
+);
+
+function handleAuthExpired() {
+  if (auth.isLogin || auth.user) {
+    auth.logout();
+    ElMessage.warning("登录已失效，请重新登录");
+  }
+  loginVisible.value = true;
+}
 
 async function login() {
   loginLoading.value = true;
@@ -111,4 +126,12 @@ function logout() {
 function reloadPage() {
   window.location.reload();
 }
+
+onMounted(() => {
+  window.addEventListener("sales-ai-auth-expired", handleAuthExpired);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("sales-ai-auth-expired", handleAuthExpired);
+});
 </script>

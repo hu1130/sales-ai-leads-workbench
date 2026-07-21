@@ -10,6 +10,7 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     name: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     wechat_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import get_current_user, require_admin, tenant_id_for
 from app.core.database import get_db
 from app.core.security import now_local
 from app.models.customer import Customer
@@ -22,8 +22,9 @@ def dashboard_stats(
     db: Session = Depends(get_db),
 ) -> dict:
     is_admin = current_user.role == "admin"
-    customer_query = db.query(Customer)
-    upload_query = db.query(UploadRecord)
+    current_tenant_id = tenant_id_for(current_user)
+    customer_query = db.query(Customer).filter(Customer.tenant_id == current_tenant_id)
+    upload_query = db.query(UploadRecord).filter(UploadRecord.tenant_id == current_tenant_id)
     if not is_admin:
         customer_query = customer_query.filter(Customer.owner_id == current_user.id)
         upload_query = upload_query.filter(UploadRecord.uploader_id == current_user.id)
@@ -34,7 +35,7 @@ def dashboard_stats(
         .filter((Customer.intent_level == "高意向") | (Customer.intent_score >= 80))
         .count()
     )
-    intent_query = db.query(Customer.intent_level, func.count(Customer.id))
+    intent_query = db.query(Customer.intent_level, func.count(Customer.id)).filter(Customer.tenant_id == current_tenant_id)
     if not is_admin:
         intent_query = intent_query.filter(Customer.owner_id == current_user.id)
     intent_rows = intent_query.group_by(Customer.intent_level).all()
@@ -43,6 +44,7 @@ def dashboard_stats(
     if is_admin:
         sales_upload_rows = (
             db.query(UploadRecord.uploader_id, func.count(UploadRecord.id))
+            .filter(UploadRecord.tenant_id == current_tenant_id)
             .group_by(UploadRecord.uploader_id)
             .all()
         )
@@ -58,11 +60,12 @@ def dashboard_stats(
 
 @router.get("/team-today")
 def team_today(
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict:
+    current_tenant_id = tenant_id_for(current_user)
     today_start = now_local().replace(hour=0, minute=0, second=0, microsecond=0)
-    users = db.query(User).filter(User.role == "sales", User.status == "active").order_by(User.id.desc()).all()
+    users = db.query(User).filter(User.tenant_id == current_tenant_id, User.role == "sales", User.status == "active").order_by(User.id.desc()).all()
     if not users:
         return {"date": today_start.date().isoformat(), "unassigned_customers": 0, "items": []}
 
@@ -72,31 +75,32 @@ def team_today(
     # Batch all aggregate queries
     customer_counts = dict(
         db.query(Customer.owner_id, func.count(Customer.id))
-        .filter(Customer.owner_id.in_(user_ids))
+        .filter(Customer.tenant_id == current_tenant_id, Customer.owner_id.in_(user_ids))
         .group_by(Customer.owner_id)
         .all()
     )
     today_customer_counts = dict(
         db.query(Customer.owner_id, func.count(Customer.id))
-        .filter(Customer.owner_id.in_(user_ids), Customer.created_at >= today_start)
+        .filter(Customer.tenant_id == current_tenant_id, Customer.owner_id.in_(user_ids), Customer.created_at >= today_start)
         .group_by(Customer.owner_id)
         .all()
     )
     today_followup_counts = dict(
         db.query(Followup.user_id, func.count(Followup.id))
-        .filter(Followup.user_id.in_(user_ids), Followup.created_at >= today_start)
+        .filter(Followup.tenant_id == current_tenant_id, Followup.user_id.in_(user_ids), Followup.created_at >= today_start)
         .group_by(Followup.user_id)
         .all()
     )
     today_upload_counts = dict(
         db.query(UploadRecord.uploader_id, func.count(UploadRecord.id))
-        .filter(UploadRecord.uploader_id.in_(user_ids), UploadRecord.created_at >= today_start)
+        .filter(UploadRecord.tenant_id == current_tenant_id, UploadRecord.uploader_id.in_(user_ids), UploadRecord.created_at >= today_start)
         .group_by(UploadRecord.uploader_id)
         .all()
     )
     high_intent_counts = dict(
         db.query(Customer.owner_id, func.count(Customer.id))
         .filter(
+            Customer.tenant_id == current_tenant_id,
             Customer.owner_id.in_(user_ids),
             (Customer.intent_level == "高意向") | (Customer.intent_score >= 80),
         )
@@ -105,7 +109,7 @@ def team_today(
     )
     pending_followup_counts = dict(
         db.query(Customer.owner_id, func.count(Customer.id))
-        .filter(Customer.owner_id.in_(user_ids), Customer.last_followup_at.is_(None))
+        .filter(Customer.tenant_id == current_tenant_id, Customer.owner_id.in_(user_ids), Customer.last_followup_at.is_(None))
         .group_by(Customer.owner_id)
         .all()
     )
@@ -127,7 +131,7 @@ def team_today(
                 "total_customers": customer_counts.get(user_id, 0),
             }
         )
-    unassigned = db.query(Customer).filter(Customer.lead_status == "unassigned").count()
+    unassigned = db.query(Customer).filter(Customer.tenant_id == current_tenant_id, Customer.lead_status == "unassigned").count()
     return {
         "date": today_start.date().isoformat(),
         "unassigned_customers": unassigned,
@@ -142,27 +146,29 @@ def sales_funnel(
 ) -> dict:
     """Return conversion funnel stats for the current user/team."""
     is_admin = current_user.role == "admin"
-    base_query = db.query(Customer)
-    followup_query = db.query(Followup)
+    current_tenant_id = tenant_id_for(current_user)
+    base_query = db.query(Customer).filter(Customer.tenant_id == current_tenant_id)
+    followup_query = db.query(Followup).filter(Followup.tenant_id == current_tenant_id)
 
     if not is_admin:
         base_query = base_query.filter(Customer.owner_id == current_user.id)
         followup_query = followup_query.filter(Followup.user_id == current_user.id)
         user_filter = Customer.owner_id == current_user.id
-        quotation_query = db.query(Quotation).filter(Quotation.user_id == current_user.id)
+        quotation_query = db.query(Quotation).filter(Quotation.tenant_id == current_tenant_id, Quotation.user_id == current_user.id)
     else:
         user_filter = True
-        quotation_query = db.query(Quotation)
+        quotation_query = db.query(Quotation).filter(Quotation.tenant_id == current_tenant_id)
 
     total_leads = base_query.count()
 
     # Monthly closed won count & revenue
     month_start = now_local().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    won = db.query(Quotation).filter(Quotation.status == "accepted", Quotation.sent_at >= month_start)
+    won = db.query(Quotation).filter(Quotation.tenant_id == current_tenant_id, Quotation.status == "accepted", Quotation.sent_at >= month_start)
     if not is_admin:
         won = won.filter(Quotation.user_id == current_user.id)
     monthly_closed = won.count()
     revenue_row = db.query(func.coalesce(func.sum(Quotation.total_amount), 0)).select_from(Quotation).filter(
+        Quotation.tenant_id == current_tenant_id,
         Quotation.status == "accepted", Quotation.sent_at >= month_start
     )
     if not is_admin:
@@ -210,11 +216,13 @@ def sales_funnel(
 
 @router.get("/high-intent")
 def high_intent_customers(
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[dict]:
+    current_tenant_id = tenant_id_for(current_user)
     customers = (
         db.query(Customer)
+        .filter(Customer.tenant_id == current_tenant_id)
         .filter((Customer.intent_level == "高意向") | (Customer.intent_score >= 80))
         .order_by(Customer.intent_score.desc(), Customer.updated_at.desc())
         .limit(100)
@@ -240,11 +248,13 @@ def followup_priorities(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[dict]:
+    current_tenant_id = tenant_id_for(current_user)
     query = (
         db.query(Followup, Customer)
         .join(Customer, Followup.customer_id == Customer.id)
         .options(joinedload(Customer.owner))
-        .filter(Followup.source.in_(("material_auto", "call_auto", "manual_note", "manual")))
+        .filter(Followup.tenant_id == current_tenant_id, Customer.tenant_id == current_tenant_id)
+        .filter(Followup.source.in_(("material_auto", "call_auto", "call_manual", "manual_note", "manual")))
         .filter(Followup.status == "pending")
     )
     if current_user.role != "admin":

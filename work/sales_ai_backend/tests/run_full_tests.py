@@ -171,7 +171,13 @@ def run() -> None:
         unknown_id = unknown_response.json()["id"]
         unknown_detail = client.get(f"/api/uploads/{unknown_id}", headers=headers).json()
         check(unknown_detail["analysis"]["intent_level"] == "无法判断", "image fallback should be unable to judge")
-        check("DASHSCOPE_API_KEY" in unknown_detail["analysis"]["raw_text"], "image fallback should mention missing OCR key")
+        check("未能读取图片内容" in unknown_detail["analysis"]["raw_text"], "image fallback should explain missing OCR text")
+        check(len(unknown_detail["file_sha256"]) == 64, "uploaded file should have sha256")
+        duplicate_unknown = client.post("/api/uploads", headers=headers, files=unknown_files)
+        check(duplicate_unknown.status_code == 200, f"duplicate upload failed: {duplicate_unknown.text}")
+        duplicate_payload = duplicate_unknown.json()
+        check(duplicate_payload["duplicate"] is True, "duplicate upload should be flagged")
+        check(duplicate_payload["id"] == unknown_id, "duplicate upload should return existing upload id")
         original_file = client.get(f"/api/uploads/{unknown_id}/file", headers=headers)
         check(original_file.status_code == 200, f"original image failed: {original_file.status_code}")
         check(original_file.content == unknown_files["file"][1], "original image bytes changed")
@@ -186,6 +192,32 @@ def run() -> None:
         check(customers.status_code == 200, f"customers list failed: {customers.text}")
         customer_items = customers.json()["items"]
         check(len(customer_items) >= 5, "customers were not created from uploads")
+
+        duplicate_a = client.post(
+            "/api/customers",
+            headers=headers,
+            json={"name": "重复客户A", "phone": "13999990000", "demand_summary": "第一次登记"},
+        )
+        duplicate_b = client.post(
+            "/api/customers",
+            headers=headers,
+            json={"name": "重复客户B", "phone": "13999990000", "demand_summary": "第二次登记", "intent_level": "高意向"},
+        )
+        check(duplicate_a.status_code == 200 and duplicate_b.status_code == 200, "manual duplicate customers should be created")
+        duplicate_groups = client.get("/api/customers/duplicates", headers=headers)
+        check(duplicate_groups.status_code == 200, f"duplicate customers failed: {duplicate_groups.text}")
+        check(
+            any(group["match_value"] == "13999990000" for group in duplicate_groups.json()["items"]),
+            "duplicate phone group should be listed",
+        )
+        merge_response = client.post(
+            f"/api/customers/{duplicate_a.json()['id']}/merge",
+            headers=headers,
+            json={"source_customer_id": duplicate_b.json()["id"]},
+        )
+        check(merge_response.status_code == 200, f"customer merge failed: {merge_response.status_code} {merge_response.text}")
+        source_after_merge = client.get(f"/api/customers/{duplicate_b.json()['id']}", headers=headers)
+        check(source_after_merge.status_code == 404, "merged source customer should be removed")
 
         high_customer = next(item for item in customer_items if item["intent_level"] == "高意向")
         customer_id = high_customer["id"]
@@ -218,6 +250,13 @@ def run() -> None:
         call = client.post("/api/call-recordings", headers=headers, files=call_files, data=call_data)
         check(call.status_code == 200, f"call recording upload failed: {call.status_code} {call.text}")
         call_payload = call.json()
+        duplicate_call = client.post("/api/call-recordings", headers=headers, files=call_files, data=call_data)
+        check(duplicate_call.status_code == 200, f"duplicate call upload failed: {duplicate_call.text}")
+        check(duplicate_call.json()["duplicate"] is True, "duplicate call recording should be flagged")
+        check(
+            duplicate_call.json()["upload_record_id"] == call_payload["upload_record_id"],
+            "duplicate call recording should reuse existing upload",
+        )
         transcript = client.post(
             f"/api/call-recordings/{call_payload['recording_id']}/transcript",
             headers=headers,

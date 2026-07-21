@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import assert_same_tenant, get_current_user, require_admin, tenant_id_for
 from app.core.database import get_db
 from app.models.script import Script
 from app.models.user import User
@@ -19,7 +19,7 @@ def list_scripts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    query = db.query(Script)
+    query = db.query(Script).filter(Script.tenant_id == tenant_id_for(current_user))
     if category:
         query = query.filter(Script.category == category)
     if keyword:
@@ -28,8 +28,16 @@ def list_scripts(
     total = query.count()
     items = query.order_by(Script.updated_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {
-        "items": [{"id": s.id, "title": s.title, "category": s.category, "content": s.content,
-                    "created_at": s.created_at.isoformat() if s.created_at else None} for s in items],
+        "items": [
+            {
+                "id": s.id,
+                "title": s.title,
+                "category": s.category,
+                "content": s.content,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in items
+        ],
         "total": total,
     }
 
@@ -37,25 +45,29 @@ def list_scripts(
 @router.post("")
 def create_script(
     payload: ScriptCreate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict:
-    s = Script(title=payload.title, category=payload.category, content=payload.content)
-    db.add(s)
+    script = Script(
+        tenant_id=tenant_id_for(current_user),
+        title=payload.title,
+        category=payload.category,
+        content=payload.content,
+    )
+    db.add(script)
     db.commit()
-    db.refresh(s)
-    return {"id": s.id, "title": s.title, "category": s.category, "content": s.content}
+    db.refresh(script)
+    return {"id": script.id, "title": script.title, "category": script.category, "content": script.content}
 
 
 @router.delete("/{script_id}")
 def delete_script(
     script_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict:
-    s = db.get(Script, script_id)
-    if s is None:
-        raise HTTPException(status_code=404, detail="话术不存在")
-    db.delete(s)
+    script = db.get(Script, script_id)
+    assert_same_tenant(script, current_user, not_found_detail="script not found")
+    db.delete(script)
     db.commit()
     return {"ok": True}

@@ -9,6 +9,8 @@ class UploadCreateResponse(BaseModel):
     id: int
     status: str
     message: str
+    duplicate: bool = False
+    duplicate_of_id: int | None = None
 
 
 class UploadOut(BaseModel):
@@ -22,6 +24,8 @@ class UploadOut(BaseModel):
     material_stage: str
     file_type: str
     file_name: str
+    file_sha256: str | None = None
+    file_size: int | None = None
     status: str
     error_message: str | None
     created_at: datetime

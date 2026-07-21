@@ -11,6 +11,7 @@ __pycache__/
 .env.*
 !.env.example
 !deploy/.env.prod.example
+deploy/backups/
 .local_secrets/
 *.key
 *.pem
@@ -25,6 +26,7 @@ __pycache__/
 # Backend runtime files
 work/sales_ai_backend/uploads/
 work/sales_ai_backend/.test_tmp/
+work/sales_ai_backend/.test_tmp_call_center/
 work/sales_ai_backend/backend.*.log
 work/sales_ai_backend/server-*.log
 
@@ -53,8 +55,14 @@ outputs/sales_ai_frontend_vue/dist/
 .claude/
 CLAUDE.md
 .tmp_test/
+.tmp_deploy/
 *.zip
 fake_wechat_ocr_deepseek_test.png
+outputs/design_previews/
+outputs/manual_test_materials_*/
+sync_reset_backup_*/
+syncthing_config_backup_*/
+test_upload_assets/
 
 # OS/editor noise
 .DS_Store

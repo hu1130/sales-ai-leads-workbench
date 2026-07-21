@@ -31,7 +31,7 @@
       <section class="panel">
         <div class="panel-head">
           <div>
-            <span class="section-kicker">Action queue</span>
+            <span class="section-kicker">行动队列</span>
             <h3 class="panel-title">优先跟进客户</h3>
           </div>
           <el-button text type="primary" @click="$router.push('/customers')">全部客户</el-button>
@@ -53,7 +53,7 @@
       <section class="panel">
         <div class="panel-head">
           <div>
-            <span class="section-kicker">AI pipeline</span>
+            <span class="section-kicker">AI 处理链路</span>
             <h3 class="panel-title">资料分析进度</h3>
           </div>
           <el-button text type="primary" @click="$router.push('/uploads')">全部资料</el-button>

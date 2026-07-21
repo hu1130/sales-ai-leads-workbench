@@ -61,6 +61,7 @@ def _save_analysis(db: Session, upload: UploadRecord, payload) -> None:
         customer = find_or_create_customer(
             db,
             owner_id=upload.uploader_id,
+            tenant_id=upload.tenant_id,
             customer_id=upload.customer_id,
             phone=payload.customer_phone,
             name=payload.customer_name,
@@ -69,6 +70,7 @@ def _save_analysis(db: Session, upload: UploadRecord, payload) -> None:
         )
         upload.customer_id = customer.id
         analysis = build_analysis_result(upload, payload)
+        analysis.tenant_id = upload.tenant_id
         analysis.customer_id = customer.id
         db.add(analysis)
         db.flush()
@@ -101,6 +103,7 @@ def _update_auto_followup_from_analysis(db: Session, upload: UploadRecord, analy
     )
     if followup is None:
         followup = Followup(
+            tenant_id=upload.tenant_id,
             customer_id=analysis.customer_id,
             user_id=upload.uploader_id,
             content="",
@@ -110,6 +113,7 @@ def _update_auto_followup_from_analysis(db: Session, upload: UploadRecord, analy
         db.add(followup)
 
     priority, next_followup_at = _followup_priority(analysis)
+    followup.tenant_id = upload.tenant_id
     pieces = [
         f"跟进优先级：{priority}",
         f"AI摘要：{analysis.summary or '未提及'}",

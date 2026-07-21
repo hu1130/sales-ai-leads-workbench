@@ -10,6 +10,7 @@ class AIAnalysisResult(Base):
     __tablename__ = "ai_analysis_results"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
     upload_record_id: Mapped[int] = mapped_column(ForeignKey("upload_records.id"), unique=True, index=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True, index=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)

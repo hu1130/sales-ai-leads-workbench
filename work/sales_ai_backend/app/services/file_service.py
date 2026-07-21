@@ -1,9 +1,11 @@
 from pathlib import Path
 from uuid import uuid4
+import hashlib
 
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import get_settings
+from app.services.storage_service import oss_enabled, upload_local_file
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus"}
@@ -26,7 +28,7 @@ def infer_file_type(filename: str) -> str:
     return "unknown"
 
 
-async def save_upload_file(file: UploadFile, subdir: str = "") -> tuple[str, str]:
+async def save_upload_file(file: UploadFile, subdir: str = "") -> tuple[str, str, str, int]:
     settings = get_settings()
     upload_dir = settings.upload_path / subdir if subdir else settings.upload_path
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -38,12 +40,14 @@ async def save_upload_file(file: UploadFile, subdir: str = "") -> tuple[str, str
     target = upload_dir / saved_name
     max_bytes = _max_size_for_suffix(suffix)
     total = 0
+    digest = hashlib.sha256()
     try:
         with target.open("wb") as handle:
             while chunk := await file.read(CHUNK_SIZE):
                 total += len(chunk)
                 if total > max_bytes:
                     raise HTTPException(status_code=413, detail=f"文件过大，最大允许 {max_bytes // 1024 // 1024} MB")
+                digest.update(chunk)
                 handle.write(chunk)
     except Exception:
         if target.exists():
@@ -51,7 +55,12 @@ async def save_upload_file(file: UploadFile, subdir: str = "") -> tuple[str, str
         raise
     finally:
         await file.close()
-    return original_name, str(target)
+
+    stored_path = str(target)
+    if oss_enabled():
+        stored_path = upload_local_file(target, subdir=subdir, filename=saved_name, content_type=file.content_type)
+        target.unlink(missing_ok=True)
+    return original_name, stored_path, digest.hexdigest(), total
 
 
 def _max_size_for_suffix(suffix: str) -> int:

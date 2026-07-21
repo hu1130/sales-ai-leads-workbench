@@ -23,8 +23,8 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# 已处理文件的记录文件，避免重复上传
-DB_PATH = Path(__file__).with_name(".cloud_watcher_db.json")
+# 已处理文件的记录文件，避免服务重启后重复上传。
+DB_PATH = Path(os.getenv("CLOUD_WATCHER_DB_PATH", Path(__file__).with_name(".cloud_watcher_db.json")))
 
 
 def load_processed() -> set:
@@ -38,9 +38,12 @@ def save_processed(processed: set) -> None:
 
 
 def file_signature(file_path: Path) -> str:
-    """用 文件名 + 大小 + 修改时间 做签名，避免重复上传"""
-    stat = file_path.stat()
-    return hashlib.md5(f"{file_path.name}|{stat.st_size}|{stat.st_mtime}".encode()).hexdigest()
+    """用文件内容 SHA256 做签名，避免同一文件改名后重复上传。"""
+    digest = hashlib.sha256()
+    with file_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def upload_file(file_path: Path, api_url: str, token: str, sales_username: str = "") -> bool:

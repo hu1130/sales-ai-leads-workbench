@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import assert_same_tenant, get_current_user, tenant_id_for
 from app.core.database import get_db
 from app.core.security import now_local
 from app.models.customer import Customer
@@ -23,12 +23,12 @@ def list_quotations(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     customer = db.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(status_code=404, detail="客户不存在")
+    assert_same_tenant(customer, current_user, not_found_detail="customer not found")
     if current_user.role != "admin" and customer.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权查看该客户")
+        raise HTTPException(status_code=403, detail="permission denied")
     quotations = (
         db.query(Quotation)
+        .filter(Quotation.tenant_id == tenant_id_for(current_user))
         .filter(Quotation.customer_id == customer_id)
         .order_by(Quotation.created_at.desc())
         .all()
@@ -44,15 +44,15 @@ def create_quotation(
     db: Session = Depends(get_db),
 ) -> dict:
     customer = db.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(status_code=404, detail="客户不存在")
+    assert_same_tenant(customer, current_user, not_found_detail="customer not found")
     if current_user.role != "admin" and customer.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权操作")
+        raise HTTPException(status_code=403, detail="permission denied")
 
     items = [item.model_dump() for item in payload.items]
     total = sum(item["qty"] * item["unit_price"] for item in items)
 
     q = Quotation(
+        tenant_id=tenant_id_for(current_user),
         customer_id=customer_id,
         user_id=current_user.id,
         title=payload.title,
@@ -75,14 +75,13 @@ def update_quotation_status(
     db: Session = Depends(get_db),
 ) -> dict:
     q = db.get(Quotation, quotation_id)
-    if q is None:
-        raise HTTPException(status_code=404, detail="报价不存在")
+    assert_same_tenant(q, current_user, not_found_detail="quotation not found")
     if current_user.role != "admin" and q.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权操作")
+        raise HTTPException(status_code=403, detail="permission denied")
 
     new_status = payload.status
     if new_status not in VALID_STATUSES:
-        raise HTTPException(status_code=400, detail=f"状态必须是 {VALID_STATUSES}")
+        raise HTTPException(status_code=400, detail=f"status must be one of {sorted(VALID_STATUSES)}")
     q.status = new_status
     if new_status == "sent":
         q.sent_at = now_local()

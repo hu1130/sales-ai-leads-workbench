@@ -10,6 +10,7 @@ class CallRecording(Base):
     __tablename__ = "call_recordings"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True, index=True)
     sales_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     caller_phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)

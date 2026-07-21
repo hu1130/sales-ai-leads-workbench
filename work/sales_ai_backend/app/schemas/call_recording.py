@@ -5,6 +5,8 @@ class CallRecordingUploadResponse(BaseModel):
     recording_id: int
     upload_record_id: int
     status: str
+    duplicate: bool = False
+    duplicate_of_id: int | None = None
 
 
 class CallTranscriptUpdate(BaseModel):

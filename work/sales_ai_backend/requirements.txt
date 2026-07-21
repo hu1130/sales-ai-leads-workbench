@@ -1,8 +1,12 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
+pymysql==1.1.1
+psycopg2-binary==2.9.10
 pydantic-settings==2.7.1
 python-multipart==0.0.20
 python-jose[cryptography]==3.3.0
 passlib==1.7.4
 httpx==0.28.1
+oss2==2.19.1
+alibabacloud-outboundbot20191226==2.1.4

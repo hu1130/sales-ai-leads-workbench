@@ -21,6 +21,7 @@ class UserUpdate(BaseModel):
 
 class UserOut(BaseModel):
     id: int
+    tenant_id: int
     username: str
     name: str
     phone: str | None
@@ -30,4 +31,3 @@ class UserOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-

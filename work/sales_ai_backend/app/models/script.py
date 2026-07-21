@@ -10,6 +10,7 @@ class Script(Base):
     __tablename__ = "scripts"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
     title: Mapped[str] = mapped_column(String(200))
     category: Mapped[str] = mapped_column(String(50), default="general", index=True)
     content: Mapped[str] = mapped_column(Text)
