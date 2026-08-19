@@ -1,7 +1,10 @@
-from fastapi import Depends, HTTPException, status
+from hmac import compare_digest
+
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
@@ -10,7 +13,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 DEFAULT_TENANT_ID = 1
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def _active_user_from_token(token: str, db: Session) -> User:
     subject = decode_access_token(token)
     if subject is None:
         raise HTTPException(
@@ -28,10 +31,48 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+    return _active_user_from_token(token, db)
+
+
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin role required")
     return current_user
+
+
+def require_admin_or_platform_service(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+) -> User:
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+
+    settings = get_settings()
+    service_token = (settings.platform_service_token or "").strip()
+    if service_token and token and compare_digest(token, service_token):
+        user = (
+            db.query(User)
+            .filter(
+                User.tenant_id == int(settings.platform_tenant_id or DEFAULT_TENANT_ID),
+                User.role == "admin",
+                User.status == "active",
+            )
+            .order_by(User.id.asc())
+            .first()
+        )
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="platform service tenant has no active admin")
+        return user
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="login expired, please sign in again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return require_admin(_active_user_from_token(token, db))
 
 
 def tenant_id_for(user: User) -> int:

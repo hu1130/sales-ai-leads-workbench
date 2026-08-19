@@ -30,6 +30,8 @@ def configure_test_environment() -> None:
     os.environ["ASR_PROVIDER"] = ""
     os.environ["INTEGRATION_API_KEY"] = "integration-test-key"
     os.environ["INTEGRATION_TENANT_ID"] = "1"
+    os.environ["PLATFORM_SERVICE_TOKEN"] = "platform-test-service-token"
+    os.environ["PLATFORM_TENANT_ID"] = "1"
 
 
 configure_test_environment()
@@ -513,14 +515,23 @@ def run() -> None:
             200,
             "create ai robot campaign",
         )
+        expect_status(
+            client.post(
+                f"/api/call-campaigns/{robot_campaign['id']}/ai-robot/start",
+                headers={"Authorization": "Bearer invalid-platform-token"},
+                json={"provider": "mock", "max_calls": 1},
+            ),
+            401,
+            "reject invalid platform service token",
+        )
         robot_launch = expect_status(
             client.post(
                 f"/api/call-campaigns/{robot_campaign['id']}/ai-robot/start",
-                headers=admin_headers,
+                headers={"Authorization": "Bearer platform-test-service-token"},
                 json={"provider": "mock", "max_calls": 1},
             ),
             200,
-            "start ai robot campaign",
+            "start ai robot campaign with platform service token",
         )
         check(robot_launch["launched"] == 1, f"robot launch should start one call: {robot_launch}")
         robot_call = robot_launch["items"][0]

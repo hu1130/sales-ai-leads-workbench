@@ -18,6 +18,24 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8100
 - API 文档：http://127.0.0.1:8100/docs
 - 健康检查：http://127.0.0.1:8100/health
 
+## 平台服务身份
+
+我淘淘 Core 调用 AI 外呼启动接口时使用独立服务 Token，不使用员工管理员登录 JWT：
+
+```env
+PLATFORM_SERVICE_TOKEN=通过秘密管理系统注入的长随机值
+PLATFORM_TENANT_ID=1
+```
+
+Core 侧 `SALES_AI_BACKEND_TOKEN` 与 Provider 侧 `PLATFORM_SERVICE_TOKEN` 使用同一运行时秘密，但不得写入 Git。调用方式：
+
+```http
+POST /api/call-campaigns/{campaign_id}/ai-robot/start
+Authorization: Bearer <platform-service-token>
+```
+
+服务 Token 只能操作 `PLATFORM_TENANT_ID` 对应租户；跨租户 campaign 按不存在处理。轮换 Token 后重启 Provider 和 Core，再通过批准的测试 campaign 验证。
+
 ## 默认账号
 
 系统启动时会自动创建管理员账号：

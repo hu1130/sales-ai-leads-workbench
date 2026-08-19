@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import assert_same_tenant, get_current_user, require_admin, tenant_id_for
+from app.api.deps import assert_same_tenant, get_current_user, require_admin, require_admin_or_platform_service, tenant_id_for
 from app.core.database import get_db
 from app.models.ai_robot_call import AiRobotCall, AiRobotCallEvent
 from app.models.analysis import AIAnalysisResult
@@ -54,7 +54,7 @@ SYNC_INCOMPLETE_TERMINAL_WINDOW_MINUTES = 30
 def start_ai_robot_campaign(
     campaign_id: int,
     payload: AiRobotCampaignStart,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_platform_service),
     db: Session = Depends(get_db),
 ) -> AiRobotCampaignStartResponse:
     campaign = _get_campaign_or_404(db, campaign_id)
