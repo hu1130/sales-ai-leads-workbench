@@ -55,6 +55,7 @@ class FakeClient:
         self.queried: list[FakeRequest] = []
         self.described: list[FakeRequest] = []
         self.downloaded: list[FakeRequest] = []
+        self.cancelled: list[FakeRequest] = []
 
     def create_job_group(self, request):
         self.created.append(request)
@@ -152,6 +153,18 @@ class FakeClient:
             )
         )
 
+    def cancel_jobs(self, request):
+        self.cancelled.append(request)
+        return SimpleNamespace(
+            body=SimpleNamespace(
+                success=True,
+                code="OK",
+                http_status_code=200,
+                message="OK",
+                request_id="cancel-request-id",
+            )
+        )
+
 
 class FakeModels:
     CreateJobGroupRequest = FakeRequest
@@ -159,6 +172,7 @@ class FakeModels:
     QueryJobsWithResultRequest = FakeRequest
     DescribeJobRequest = FakeRequest
     DownloadRecordingRequest = FakeRequest
+    CancelJobsRequest = FakeRequest
 
 
 def run() -> None:
@@ -231,6 +245,24 @@ def run() -> None:
     check(sync_result.duration_seconds == 10, f"sync duration mismatch: {sync_result}")
     check(sync_result.recording_url == "https://recording.example.com/task-id-1.wav", f"sync recording mismatch: {sync_result}")
     check("Robot: hello from sales ai" in (sync_result.transcript or ""), f"sync transcript mismatch: {sync_result}")
+
+    stop_result = provider.stop_ai_robot_call(
+        provider_call_id="job-id-1",
+        raw_payload={"job_group_id": "job-group-id-1", "job_ids": ["job-id-1"]},
+    )
+    check(stop_result.accepted, f"stop request should be accepted: {stop_result}")
+    check(stop_result.provider_call_id == "job-id-1", f"stopped job id mismatch: {stop_result}")
+    check(stop_result.raw_payload["request_id"] == "cancel-request-id", f"cancel request id mismatch: {stop_result}")
+    check(len(client.cancelled) == 1, f"CancelJobs should be called once: {client.cancelled}")
+    check(client.cancelled[0].all is False, "CancelJobs must not cancel all tenant jobs")
+    check(client.cancelled[0].instance_id == "6485ff54-c3f5-44d4-9fab-ad1803d2aed6", "cancel instance id mismatch")
+    check(client.cancelled[0].job_group_id == "job-group-id-1", "cancel job group id mismatch")
+    check(client.cancelled[0].job_id == ["job-id-1"], f"cancel job id mismatch: {client.cancelled[0].job_id}")
+
+    stop_without_script = AliyunOutboundBotProvider(fake_settings(script_id=None, caller=None))
+    stop_without_script._build_client = lambda: (client, FakeModels)  # type: ignore[method-assign]
+    stop_without_script.stop_ai_robot_call(provider_call_id="job-id-2")
+    check(client.cancelled[1].job_id == ["job-id-2"], "stop must not depend on launch-only caller/script config")
 
     check(datetime.now().year >= 2026, "sanity")
 
