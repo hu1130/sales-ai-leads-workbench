@@ -537,6 +537,25 @@ def run() -> None:
         robot_call = robot_launch["items"][0]
         check(robot_call["status"] == "initiated", f"robot call should be initiated: {robot_call}")
         check(robot_call["call_attempt_id"], f"robot call should create attempt: {robot_call}")
+        platform_headers = {"Authorization": "Bearer platform-test-service-token"}
+        platform_provider_status = expect_status(
+            client.get("/api/call-provider/status", headers=platform_headers),
+            200,
+            "platform service reads provider health/configuration status",
+        )
+        check(platform_provider_status["provider"] == "mock", f"platform provider status mismatch: {platform_provider_status}")
+        platform_calls = expect_status(
+            client.get("/api/ai-robot-calls", headers=platform_headers, params={"campaign_id": robot_campaign["id"]}),
+            200,
+            "platform service lists tenant robot calls",
+        )
+        check(platform_calls["total"] == 1, f"platform robot call list mismatch: {platform_calls}")
+        platform_call = expect_status(
+            client.get(f"/api/ai-robot-calls/{robot_call['id']}", headers=platform_headers),
+            200,
+            "platform service reads robot call detail",
+        )
+        check(platform_call["provider_call_id"] == robot_call["provider_call_id"], f"platform robot detail mismatch: {platform_call}")
 
         answered_robot = expect_status(
             client.post(

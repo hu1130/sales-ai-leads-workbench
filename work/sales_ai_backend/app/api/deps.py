@@ -41,7 +41,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-def require_admin_or_platform_service(
+def get_current_user_or_platform_service(
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ) -> User:
@@ -72,7 +72,13 @@ def require_admin_or_platform_service(
             detail="login expired, please sign in again",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return require_admin(_active_user_from_token(token, db))
+    return _active_user_from_token(token, db)
+
+
+def require_admin_or_platform_service(
+    current_user: User = Depends(get_current_user_or_platform_service),
+) -> User:
+    return require_admin(current_user)
 
 
 def tenant_id_for(user: User) -> int:

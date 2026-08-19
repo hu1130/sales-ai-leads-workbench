@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin, tenant_id_for
+from app.api.deps import require_admin, require_admin_or_platform_service, tenant_id_for
 from app.core.database import get_db
 from app.models.call_provider_config import CallProviderConfig
 from app.models.user import User
@@ -54,7 +54,7 @@ def patch_call_provider_config(
 @router.get("/status", response_model=CallProviderStatusOut)
 def get_call_provider_status(
     request: Request,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_platform_service),
     db: Session = Depends(get_db),
 ) -> CallProviderStatusOut:
     effective = get_effective_call_provider_settings(db, tenant_id_for(current_user))
