@@ -34,6 +34,13 @@ class AiRobotSyncResult:
     raw_payload: dict = field(default_factory=dict)
 
 
+@dataclass
+class AiRobotStopResult:
+    provider_call_id: str
+    accepted: bool
+    raw_payload: dict = field(default_factory=dict)
+
+
 class CallProviderError(RuntimeError):
     pass
 
@@ -68,6 +75,14 @@ class BaseCallProvider:
         provider_call_id: str,
         raw_payload: dict | None = None,
     ) -> AiRobotSyncResult:
+        raise NotImplementedError
+
+    def stop_ai_robot_call(
+        self,
+        *,
+        provider_call_id: str,
+        raw_payload: dict | None = None,
+    ) -> AiRobotStopResult:
         raise NotImplementedError
 
 
@@ -130,6 +145,18 @@ class MockCallProvider(BaseCallProvider):
             recording_url=f"mock://recordings/{provider_call_id}.wav",
             transcript="Robot: mock ai robot call completed.\nContact: interested in a follow-up.",
             raw_payload={"provider": self.name, "source": "mock_sync", "launch_raw_payload": raw_payload or {}},
+        )
+
+    def stop_ai_robot_call(
+        self,
+        *,
+        provider_call_id: str,
+        raw_payload: dict | None = None,
+    ) -> AiRobotStopResult:
+        return AiRobotStopResult(
+            provider_call_id=provider_call_id,
+            accepted=True,
+            raw_payload={"provider": self.name, "source": "mock_stop", "launch_raw_payload": raw_payload or {}},
         )
 
 
@@ -379,6 +406,62 @@ class AliyunOutboundBotProvider(BaseCallProvider):
             failure_reason=failure_reason,
             raw_payload=sync_payload,
         )
+
+    def stop_ai_robot_call(
+        self,
+        *,
+        provider_call_id: str,
+        raw_payload: dict | None = None,
+    ) -> AiRobotStopResult:
+        self._ensure_stop_configured()
+        client, models = self._build_client()
+        launch_payload = raw_payload or {}
+        job_id = _clean_text(provider_call_id) or _first_clean_text(launch_payload.get("job_ids"))
+        if not job_id:
+            raise CallProviderError("aliyun CancelJobs requires provider_call_id/JobId")
+
+        job_group_id = _clean_text(launch_payload.get("job_group_id"))
+        try:
+            cancel_response = client.cancel_jobs(
+                models.CancelJobsRequest(
+                    all=False,
+                    instance_id=self.settings.app_id,
+                    job_group_id=job_group_id,
+                    job_id=[job_id],
+                )
+            )
+        except Exception as exc:
+            raise CallProviderError(f"aliyun CancelJobs failed: {_sdk_error_message(exc)}") from exc
+
+        cancel_body = getattr(cancel_response, "body", None)
+        if getattr(cancel_body, "success", None) is not True:
+            raise CallProviderError(f"aliyun CancelJobs failed: {_response_message(cancel_body)}")
+
+        return AiRobotStopResult(
+            provider_call_id=job_id,
+            accepted=True,
+            raw_payload={
+                "provider": self.name,
+                "job_group_id": job_group_id,
+                "job_id": job_id,
+                "request_id": getattr(cancel_body, "request_id", None),
+                "code": getattr(cancel_body, "code", None),
+                "message": getattr(cancel_body, "message", None),
+            },
+        )
+
+    def _ensure_stop_configured(self) -> None:
+        missing = []
+        if not self.settings.app_id:
+            missing.append("CALL_PROVIDER_APP_ID/InstanceId")
+        if not self.settings.app_key:
+            missing.append("CALL_PROVIDER_APP_KEY/AccessKeyId")
+        if not self.settings.app_secret:
+            missing.append("CALL_PROVIDER_APP_SECRET/AccessKeySecret")
+        if not self.settings.enabled:
+            missing.append("enabled")
+        if missing:
+            raise CallProviderError("aliyun outboundbot stop configuration is incomplete: " + ", ".join(missing))
 
     def _ensure_configured(self) -> None:
         missing = []
