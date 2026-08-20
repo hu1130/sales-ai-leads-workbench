@@ -30,6 +30,8 @@ def configure_test_environment() -> None:
     os.environ["ASR_PROVIDER"] = ""
     os.environ["INTEGRATION_API_KEY"] = "integration-test-key"
     os.environ["INTEGRATION_TENANT_ID"] = "1"
+    os.environ["PLATFORM_SERVICE_TOKEN"] = "platform-test-service-token"
+    os.environ["PLATFORM_TENANT_ID"] = "1"
 
 
 configure_test_environment()
@@ -513,19 +515,47 @@ def run() -> None:
             200,
             "create ai robot campaign",
         )
+        expect_status(
+            client.post(
+                f"/api/call-campaigns/{robot_campaign['id']}/ai-robot/start",
+                headers={"Authorization": "Bearer invalid-platform-token"},
+                json={"provider": "mock", "max_calls": 1},
+            ),
+            401,
+            "reject invalid platform service token",
+        )
         robot_launch = expect_status(
             client.post(
                 f"/api/call-campaigns/{robot_campaign['id']}/ai-robot/start",
-                headers=admin_headers,
+                headers={"Authorization": "Bearer platform-test-service-token"},
                 json={"provider": "mock", "max_calls": 1},
             ),
             200,
-            "start ai robot campaign",
+            "start ai robot campaign with platform service token",
         )
         check(robot_launch["launched"] == 1, f"robot launch should start one call: {robot_launch}")
         robot_call = robot_launch["items"][0]
         check(robot_call["status"] == "initiated", f"robot call should be initiated: {robot_call}")
         check(robot_call["call_attempt_id"], f"robot call should create attempt: {robot_call}")
+        platform_headers = {"Authorization": "Bearer platform-test-service-token"}
+        platform_provider_status = expect_status(
+            client.get("/api/call-provider/status", headers=platform_headers),
+            200,
+            "platform service reads provider health/configuration status",
+        )
+        check(platform_provider_status["provider"] == "mock", f"platform provider status mismatch: {platform_provider_status}")
+        platform_calls = expect_status(
+            client.get("/api/ai-robot-calls", headers=platform_headers, params={"campaign_id": robot_campaign["id"]}),
+            200,
+            "platform service lists tenant robot calls",
+        )
+        check(platform_calls["total"] == 1, f"platform robot call list mismatch: {platform_calls}")
+        platform_call = expect_status(
+            client.get(f"/api/ai-robot-calls/{robot_call['id']}", headers=platform_headers),
+            200,
+            "platform service reads robot call detail",
+        )
+        check(platform_call["provider_call_id"] == robot_call["provider_call_id"], f"platform robot detail mismatch: {platform_call}")
 
         answered_robot = expect_status(
             client.post(

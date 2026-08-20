@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import assert_same_tenant, get_current_user, require_admin, tenant_id_for
+from app.api.deps import assert_same_tenant, get_current_user_or_platform_service, require_admin_or_platform_service, tenant_id_for
 from app.core.database import get_db
 from app.models.ai_robot_call import AiRobotCall, AiRobotCallEvent
 from app.models.analysis import AIAnalysisResult
@@ -54,7 +54,7 @@ SYNC_INCOMPLETE_TERMINAL_WINDOW_MINUTES = 30
 def start_ai_robot_campaign(
     campaign_id: int,
     payload: AiRobotCampaignStart,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_platform_service),
     db: Session = Depends(get_db),
 ) -> AiRobotCampaignStartResponse:
     campaign = _get_campaign_or_404(db, campaign_id)
@@ -171,7 +171,7 @@ def list_ai_robot_calls(
     high_intent: bool | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_or_platform_service),
     db: Session = Depends(get_db),
 ) -> AiRobotCallListResponse:
     query = _robot_call_query(db).filter(AiRobotCall.tenant_id == tenant_id_for(current_user))
@@ -193,7 +193,7 @@ def list_ai_robot_calls(
 @router.post("/ai-robot-calls/sync-pending", response_model=AiRobotSyncPendingResponse)
 def sync_pending_ai_robot_calls(
     limit: int = Query(default=20, ge=1, le=100),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_platform_service),
     db: Session = Depends(get_db),
 ) -> AiRobotSyncPendingResponse:
     synced_items, errors = sync_pending_ai_robot_call_batch(db, limit=limit, tenant_id=tenant_id_for(current_user))
@@ -255,7 +255,7 @@ def _sync_candidate_robot_call_ids(db: Session, *, limit: int, tenant_id: int | 
 @router.get("/ai-robot-calls/{robot_call_id}", response_model=AiRobotCallOut)
 def get_ai_robot_call(
     robot_call_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_or_platform_service),
     db: Session = Depends(get_db),
 ) -> AiRobotCallOut:
     robot_call = _get_robot_call_for_user(db, robot_call_id, current_user)
@@ -265,7 +265,7 @@ def get_ai_robot_call(
 @router.post("/ai-robot-calls/{robot_call_id}/sync", response_model=AiRobotCallOut)
 def sync_ai_robot_call(
     robot_call_id: int,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_platform_service),
     db: Session = Depends(get_db),
 ) -> AiRobotCallOut:
     robot_call = _get_robot_call_for_user(db, robot_call_id, current_user)

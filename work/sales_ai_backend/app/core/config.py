@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     ai_robot_auto_sync_batch_size: int = 20
     integration_api_key: str | None = None
     integration_tenant_id: int = 1
+    platform_service_token: str | None = None
+    platform_tenant_id: int = 1
     storage_backend: str = "local"
     oss_endpoint: str | None = None
     oss_bucket: str | None = None

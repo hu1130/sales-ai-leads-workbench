@@ -27,6 +27,8 @@ def configure_test_environment() -> None:
     os.environ["DEEPSEEK_API_KEY"] = ""
     os.environ["DASHSCOPE_API_KEY"] = ""
     os.environ["ASR_PROVIDER"] = ""
+    os.environ["PLATFORM_SERVICE_TOKEN"] = "platform-tenant-test-token"
+    os.environ["PLATFORM_TENANT_ID"] = "1"
 
 
 configure_test_environment()
@@ -139,6 +141,48 @@ def run() -> None:
         sales_b = create_sales_user(client, admin_b_headers, "tenant_b_sales")
         customer_a = create_customer(client, admin_a_headers, "A公司客户", "13800138001", sales_a["id"])
         customer_b = create_customer(client, admin_b_headers, "B公司客户", "13800138002", sales_b["id"])
+
+        tenant_b_campaign = expect_status(
+            client.post(
+                "/api/call-campaigns",
+                headers=admin_b_headers,
+                json={
+                    "name": "B tenant platform boundary campaign",
+                    "scenario": "ai_robot_lead_filter",
+                    "customer_ids": [customer_b["id"]],
+                    "assigned_user_id": sales_b["id"],
+                },
+            ),
+            200,
+            "create tenant B AI robot campaign",
+        )
+        expect_status(
+            client.post(
+                f"/api/call-campaigns/{tenant_b_campaign['id']}/ai-robot/start",
+                headers={"Authorization": "Bearer platform-tenant-test-token"},
+                json={"provider": "mock", "max_calls": 1},
+            ),
+            404,
+            "platform service token cannot cross tenant boundary",
+        )
+        tenant_b_launch = expect_status(
+            client.post(
+                f"/api/call-campaigns/{tenant_b_campaign['id']}/ai-robot/start",
+                headers=admin_b_headers,
+                json={"provider": "mock", "max_calls": 1},
+            ),
+            200,
+            "tenant B admin starts its AI robot campaign",
+        )
+        tenant_b_robot_call = tenant_b_launch["items"][0]
+        expect_status(
+            client.get(
+                f"/api/ai-robot-calls/{tenant_b_robot_call['id']}",
+                headers={"Authorization": "Bearer platform-tenant-test-token"},
+            ),
+            404,
+            "platform service token cannot read tenant B robot call",
+        )
 
         customers_a = expect_status(client.get("/api/customers", headers=admin_a_headers), 200, "tenant A customers")
         customers_b = expect_status(client.get("/api/customers", headers=admin_b_headers), 200, "tenant B customers")
