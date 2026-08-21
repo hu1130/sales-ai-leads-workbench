@@ -34,6 +34,18 @@ POST /api/call-campaigns/{campaign_id}/ai-robot/start
 Authorization: Bearer <platform-service-token>
 ```
 
+停止已经持久化的 Provider 外呼任务使用独立幂等命令；员工管理员 JWT 无权调用：
+
+```http
+POST /api/ai-robot-calls/{robot_call_id}/stop
+Authorization: Bearer <platform-service-token>
+Idempotency-Key: AI_CALL_STOP:{call_task_id}
+```
+
+首次受理返回 `202/CANCEL_REQUESTED`，同键同载荷重放返回原回执并标记
+`replayed=true`；同键不同载荷返回 `409 IDEMPOTENCY_CONFLICT`。`202` 不代表已经
+停止，最终状态仍以查单或回调为准。
+
 服务 Token 只能操作 `PLATFORM_TENANT_ID` 对应租户；跨租户 campaign 按不存在处理。轮换 Token 后重启 Provider 和 Core，再通过批准的测试 campaign 验证。
 
 ## 默认账号

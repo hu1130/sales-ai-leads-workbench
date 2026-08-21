@@ -1,7 +1,7 @@
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timedelta
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AiRobotCampaignStart(BaseModel):
@@ -70,3 +70,44 @@ class AiRobotSyncPendingResponse(BaseModel):
     failed: int
     items: list[AiRobotCallOut]
     errors: list[str] = Field(default_factory=list)
+
+
+class AiRobotStopRequest(BaseModel):
+    call_task_id: str = Field(pattern=r"^clt_[A-Za-z0-9][A-Za-z0-9_-]{1,126}$")
+    provider_task_ref: str = Field(pattern=r"^ptk_[A-Za-z0-9][A-Za-z0-9_-]{1,126}$")
+    provider_call_id: str = Field(min_length=1, max_length=120)
+    reason_code: Literal[
+        "USER_REQUESTED",
+        "AUTO_POLICY",
+        "CAMPAIGN_PAUSED",
+        "SYSTEM_ROLLBACK",
+        "TEST_TEARDOWN",
+    ]
+    requested_at: datetime
+    trace_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
+
+    @field_validator("requested_at")
+    @classmethod
+    def requested_at_must_be_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("requested_at must be an ISO-8601 UTC timestamp")
+        return value
+
+
+class AiRobotStopResponse(BaseModel):
+    accepted: bool
+    status: Literal[
+        "CANCEL_REQUESTED",
+        "CANCELLED",
+        "ALREADY_TERMINAL",
+        "NOT_FOUND",
+        "NOT_STOPPABLE",
+        "UNKNOWN",
+        "FAILED",
+    ]
+    robot_call_id: int
+    provider: str
+    provider_call_id: str
+    receipt_id: str
+    raw_status: str
+    replayed: bool

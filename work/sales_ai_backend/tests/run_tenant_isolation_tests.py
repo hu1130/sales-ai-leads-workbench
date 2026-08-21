@@ -183,6 +183,25 @@ def run() -> None:
             404,
             "platform service token cannot read tenant B robot call",
         )
+        expect_status(
+            client.post(
+                f"/api/ai-robot-calls/{tenant_b_robot_call['id']}/stop",
+                headers={
+                    "Authorization": "Bearer platform-tenant-test-token",
+                    "Idempotency-Key": "AI_CALL_STOP:clt_tenant_b_stop_001",
+                },
+                json={
+                    "call_task_id": "clt_tenant_b_stop_001",
+                    "provider_task_ref": "ptk_tenant_b_stop_001",
+                    "provider_call_id": tenant_b_robot_call["provider_call_id"],
+                    "reason_code": "TEST_TEARDOWN",
+                    "requested_at": "2026-08-20T00:00:00Z",
+                    "trace_id": "tr_tenant_b_stop_001",
+                },
+            ),
+            404,
+            "platform service token cannot stop tenant B robot call",
+        )
 
         customers_a = expect_status(client.get("/api/customers", headers=admin_a_headers), 200, "tenant A customers")
         customers_b = expect_status(client.get("/api/customers", headers=admin_b_headers), 200, "tenant B customers")

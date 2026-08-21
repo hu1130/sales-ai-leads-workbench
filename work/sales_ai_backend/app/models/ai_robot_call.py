@@ -56,3 +56,33 @@ class AiRobotCallEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     robot_call = relationship("AiRobotCall")
+
+
+class AiRobotCallStopRequest(Base):
+    __tablename__ = "ai_robot_call_stop_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_ai_robot_stop_tenant_idempotency"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, index=True)
+    robot_call_id: Mapped[int] = mapped_column(ForeignKey("ai_robot_calls.id"), index=True)
+    call_task_id: Mapped[str] = mapped_column(String(128), index=True)
+    provider_task_ref: Mapped[str] = mapped_column(String(128))
+    provider_call_id: Mapped[str] = mapped_column(String(120))
+    reason_code: Mapped[str] = mapped_column(String(40))
+    requested_at: Mapped[datetime] = mapped_column(DateTime)
+    trace_id: Mapped[str] = mapped_column(String(128), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    receipt_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(32), default="UNKNOWN")
+    raw_status: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    http_status: Mapped[int] = mapped_column(Integer, default=202)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    robot_call = relationship("AiRobotCall")

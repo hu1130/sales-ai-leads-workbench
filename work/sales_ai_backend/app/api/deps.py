@@ -75,6 +75,46 @@ def get_current_user_or_platform_service(
     return _active_user_from_token(token, db)
 
 
+def require_platform_service(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+) -> User:
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+
+    settings = get_settings()
+    service_token = (settings.platform_service_token or "").strip()
+    if not service_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="platform service authentication is not configured",
+        )
+    if not token or not compare_digest(token, service_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="platform service authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = (
+        db.query(User)
+        .filter(
+            User.tenant_id == int(settings.platform_tenant_id or DEFAULT_TENANT_ID),
+            User.role == "admin",
+            User.status == "active",
+        )
+        .order_by(User.id.asc())
+        .first()
+    )
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="platform service tenant has no active admin",
+        )
+    return user
+
+
 def require_admin_or_platform_service(
     current_user: User = Depends(get_current_user_or_platform_service),
 ) -> User:

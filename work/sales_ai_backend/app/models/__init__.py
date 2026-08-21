@@ -1,5 +1,5 @@
 from app.models.analysis import AIAnalysisResult
-from app.models.ai_robot_call import AiRobotCall, AiRobotCallEvent
+from app.models.ai_robot_call import AiRobotCall, AiRobotCallEvent, AiRobotCallStopRequest
 from app.models.call_attempt import CallAttempt
 from app.models.call_campaign import CallCampaign
 from app.models.call_campaign_target import CallCampaignTarget
@@ -18,6 +18,7 @@ __all__ = [
     "AIAnalysisResult",
     "AiRobotCall",
     "AiRobotCallEvent",
+    "AiRobotCallStopRequest",
     "CallAttempt",
     "CallCampaign",
     "CallCampaignTarget",
