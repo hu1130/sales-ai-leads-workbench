@@ -210,7 +210,7 @@ def run() -> None:
     check(create_request.instance_id == "6485ff54-c3f5-44d4-9fab-ad1803d2aed6", "instance id mismatch")
     check(create_request.script_id == "c6353512-958e-4430-a377-253a095b6624", "script id mismatch")
     check(create_request.calling_number == ["30360717"], f"caller mismatch: {create_request.calling_number}")
-    check(create_request.min_concurrency == 1, f"min concurrency mismatch: {create_request.min_concurrency}")
+    check(create_request.min_concurrency == 0, f"min concurrency mismatch: {create_request.min_concurrency}")
     check(create_request.priority == "Daily", f"priority mismatch: {create_request.priority}")
     check(create_request.ringing_duration == 25, f"ringing mismatch: {create_request.ringing_duration}")
 

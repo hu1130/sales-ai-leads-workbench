@@ -218,7 +218,7 @@ class AliyunOutboundBotProvider(BaseCallProvider):
                     job_group_description=f"Sales AI robot call for customer {customer_id}",
                     calling_number=[self.settings.caller],
                     recall_calling_number=[self.settings.caller],
-                    min_concurrency=1,
+                    min_concurrency=0,
                     priority="Daily",
                     ringing_duration=25,
                     strategy_json=strategy_json,
