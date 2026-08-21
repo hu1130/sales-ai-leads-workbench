@@ -1,14 +1,17 @@
 from datetime import datetime, timedelta
+import hashlib
 import json
 import re
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import and_, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import assert_same_tenant, get_current_user_or_platform_service, require_admin_or_platform_service, tenant_id_for
+from app.api.deps import assert_same_tenant, get_current_user_or_platform_service, require_admin_or_platform_service, require_platform_service, tenant_id_for
 from app.core.database import get_db
-from app.models.ai_robot_call import AiRobotCall, AiRobotCallEvent
+from app.models.ai_robot_call import AiRobotCall, AiRobotCallEvent, AiRobotCallStopRequest
 from app.models.analysis import AIAnalysisResult
 from app.models.call_attempt import CallAttempt
 from app.models.call_campaign import CallCampaign
@@ -24,6 +27,8 @@ from app.schemas.ai_robot_call import (
     AiRobotCallOut,
     AiRobotCampaignStart,
     AiRobotCampaignStartResponse,
+    AiRobotStopRequest,
+    AiRobotStopResponse,
     AiRobotSyncPendingResponse,
     AiRobotWebhook,
 )
@@ -273,6 +278,100 @@ def sync_ai_robot_call(
     db.commit()
     db.refresh(robot_call)
     return _robot_call_out(robot_call)
+
+
+@router.post(
+    "/ai-robot-calls/{robot_call_id}/stop",
+    response_model=AiRobotStopResponse,
+    status_code=202,
+    responses={200: {"model": AiRobotStopResponse}},
+)
+def stop_ai_robot_call(
+    robot_call_id: int,
+    response: Response,
+    payload: AiRobotStopRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    current_user: User = Depends(require_platform_service),
+    db: Session = Depends(get_db),
+) -> AiRobotStopResponse:
+    expected_key = f"AI_CALL_STOP:{payload.call_task_id}"
+    if idempotency_key != expected_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key does not match call_task_id")
+
+    robot_call = _get_robot_call_for_user(db, robot_call_id, current_user)
+    tenant_id = tenant_id_for(current_user)
+    payload_hash = _stop_payload_hash(robot_call_id, payload)
+    existing = _find_stop_request(db, tenant_id, idempotency_key)
+    if existing is not None:
+        return _replay_stop_request(existing, payload_hash, response)
+
+    if payload.provider_call_id != robot_call.provider_call_id:
+        raise HTTPException(status_code=409, detail="provider_call_id does not match the persisted robot call")
+
+    stop_request = AiRobotCallStopRequest(
+        tenant_id=tenant_id,
+        robot_call_id=robot_call.id,
+        call_task_id=payload.call_task_id,
+        provider_task_ref=payload.provider_task_ref,
+        provider_call_id=payload.provider_call_id,
+        reason_code=payload.reason_code,
+        requested_at=payload.requested_at,
+        trace_id=payload.trace_id,
+        idempotency_key=idempotency_key,
+        payload_hash=payload_hash,
+        receipt_id=f"stp_{uuid.uuid4().hex}",
+        provider=robot_call.provider,
+        accepted=False,
+        status="UNKNOWN",
+        raw_status="PENDING",
+        http_status=202,
+    )
+    db.add(stop_request)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        concurrent = _find_stop_request(db, tenant_id, idempotency_key)
+        if concurrent is None:
+            raise
+        return _replay_stop_request(concurrent, payload_hash, response)
+
+    if robot_call.status in ROBOT_TERMINAL_STATUSES:
+        stop_request.status = "ALREADY_TERMINAL"
+        stop_request.raw_status = robot_call.status
+        stop_request.http_status = 200
+        _record_stop_request_event(db, robot_call, stop_request)
+        db.commit()
+        response.status_code = 200
+        return _stop_response(stop_request, replayed=False)
+
+    try:
+        effective = get_effective_call_provider_settings(db, tenant_id)
+        provider = get_call_provider(robot_call.provider, effective)
+        provider_result = provider.stop_ai_robot_call(
+            provider_call_id=robot_call.provider_call_id,
+            raw_payload=_json_object(robot_call.raw_payload_json),
+        )
+    except CallProviderError:
+        stop_request.status = "UNKNOWN"
+        stop_request.raw_status = "PROVIDER_ERROR"
+        stop_request.error_detail = "call provider stop failed"
+        stop_request.http_status = 502
+        _record_stop_request_event(db, robot_call, stop_request)
+        db.commit()
+        raise HTTPException(status_code=502, detail=stop_request.error_detail)
+
+    stop_request.accepted = provider_result.accepted
+    stop_request.status = "CANCEL_REQUESTED" if provider_result.accepted else "UNKNOWN"
+    stop_request.raw_status = _provider_stop_raw_status(provider_result.raw_payload)
+    stop_request.http_status = 202 if provider_result.accepted else 502
+    _record_stop_request_event(db, robot_call, stop_request)
+    db.commit()
+
+    if not provider_result.accepted:
+        raise HTTPException(status_code=502, detail="call provider did not accept stop request")
+    response.status_code = 202
+    return _stop_response(stop_request, replayed=False)
 
 
 @router.post("/ai-robot-calls/webhook/{provider}", response_model=AiRobotCallOut)
@@ -766,6 +865,101 @@ def _status_text(status: str | None) -> str:
         "empty_number": "空号",
         "failed": "失败",
     }.get(status or "", status or "-")
+
+
+def _stop_payload_hash(robot_call_id: int, payload: AiRobotStopRequest) -> str:
+    canonical_payload = {
+        "robot_call_id": robot_call_id,
+        **payload.model_dump(mode="json"),
+    }
+    encoded = json.dumps(canonical_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _find_stop_request(db: Session, tenant_id: int, idempotency_key: str) -> AiRobotCallStopRequest | None:
+    return (
+        db.query(AiRobotCallStopRequest)
+        .filter(
+            AiRobotCallStopRequest.tenant_id == tenant_id,
+            AiRobotCallStopRequest.idempotency_key == idempotency_key,
+        )
+        .first()
+    )
+
+
+def _replay_stop_request(
+    stop_request: AiRobotCallStopRequest,
+    payload_hash: str,
+    response: Response,
+) -> AiRobotStopResponse:
+    if stop_request.payload_hash != payload_hash:
+        raise HTTPException(status_code=409, detail="IDEMPOTENCY_CONFLICT")
+    if stop_request.http_status >= 400:
+        raise HTTPException(
+            status_code=stop_request.http_status,
+            detail=stop_request.error_detail or "call provider stop failed",
+        )
+    response.status_code = 200
+    return _stop_response(stop_request, replayed=True)
+
+
+def _stop_response(stop_request: AiRobotCallStopRequest, *, replayed: bool) -> AiRobotStopResponse:
+    return AiRobotStopResponse(
+        accepted=stop_request.accepted,
+        status=stop_request.status,
+        robot_call_id=stop_request.robot_call_id,
+        provider=stop_request.provider,
+        provider_call_id=stop_request.provider_call_id,
+        receipt_id=stop_request.receipt_id,
+        raw_status=stop_request.raw_status or stop_request.status,
+        replayed=replayed,
+    )
+
+
+def _record_stop_request_event(
+    db: Session,
+    robot_call: AiRobotCall,
+    stop_request: AiRobotCallStopRequest,
+) -> None:
+    db.add(
+        AiRobotCallEvent(
+            tenant_id=stop_request.tenant_id,
+            robot_call_id=robot_call.id,
+            provider=robot_call.provider,
+            provider_call_id=robot_call.provider_call_id,
+            event_type="robot_call_stop_requested",
+            payload_json=_json_dump(
+                {
+                    "call_task_id": stop_request.call_task_id,
+                    "provider_task_ref": stop_request.provider_task_ref,
+                    "reason_code": stop_request.reason_code,
+                    "trace_id": stop_request.trace_id,
+                    "receipt_id": stop_request.receipt_id,
+                    "accepted": stop_request.accepted,
+                    "status": stop_request.status,
+                    "raw_status": stop_request.raw_status,
+                }
+            ),
+        )
+    )
+
+
+def _provider_stop_raw_status(raw_payload: dict) -> str:
+    for key in ("code", "message", "source"):
+        value = raw_payload.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()[:160]
+    return "ACCEPTED"
+
+
+def _json_object(value: str | None) -> dict:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _json_dump(value) -> str:

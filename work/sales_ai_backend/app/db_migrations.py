@@ -32,6 +32,7 @@ def run_lightweight_migrations() -> None:
         "call_attempts",
         "ai_robot_calls",
         "ai_robot_call_events",
+        "ai_robot_call_stop_requests",
         "sales_callbacks",
         "sales_callback_events",
         "call_recordings",
